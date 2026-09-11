@@ -7,6 +7,7 @@ struct ArenaView: View {
     let service: MCPService
     @Bindable var setup: ClientSetup
     @State private var selection: String?
+    @State private var folder: SessionFolder = .sessions
     @State private var showingDetails = false
     @State private var showingActivity = false
     @FocusState private var sessionListFocused: Bool
@@ -38,6 +39,7 @@ struct ArenaView: View {
         .sheet(isPresented: $showingNewSession) {
             SessionEditor(session: nil) { name, brief, files in
                 selection = try await store.createSession(name: name, brief: brief, files: files)
+                folder = .sessions
                 showingDetails = true
             }
         }
@@ -55,7 +57,11 @@ struct ArenaView: View {
         .alert("Arena couldn’t complete that action", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK") { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
-        .onAppear { if selection == nil { selection = store.sessions.first?.id } }
+        .onAppear { if selection == nil { selection = sortedSessions.first?.id } }
+        .onChange(of: folder) { _, _ in selection = sortedSessions.first?.id }
+        .onChange(of: sortedSessions.map(\.id)) { _, ids in
+            if let selection, !ids.contains(selection) { self.selection = ids.first }
+        }
     }
 
     private var sidebarColumn: some View {
@@ -76,16 +82,17 @@ struct ArenaView: View {
         VStack(spacing: 0) {
             windowHeader
             if let session = selected {
+                if session.isStoredAway { retentionBanner(session) }
                 ConversationView(session: session, accept: { eventID in
                     perform { try store.acceptAnswer(session.id, eventID: eventID) }
                 }) { attachment in
                     preview = AttachmentSelection(sessionID: session.id, attachment: attachment)
-                }
+                }.id(session.id)
             } else {
                 ContentUnavailableView {
                     Label { Text(ArenaBrand.tagline) } icon: { ArenaLogo(size: 64) }
                 } description: {
-                    Text("Create a session, invite your agents, and watch them work toward a shared assessment.")
+                    Text(folder == .sessions ? "Create a session, invite your agents, and watch them work toward a shared assessment." : folder == .archive ? "Archived discussions appear here for 90 days before moving to Recently Deleted." : "Deleted discussions can be recovered here for 7 days.")
                         .frame(maxWidth: 370)
                 } actions: {
                     Button("New Session") { showingNewSession = true }
@@ -126,10 +133,15 @@ struct ArenaView: View {
                     Text(ArenaBrand.tagline).font(.system(size: 10)).foregroundStyle(ArenaPalette.secondary)
                 }.fixedSize()
                 Spacer(minLength: 0)
-                Text("\(store.sessions.count)").font(.system(size: 10)).foregroundStyle(ArenaPalette.secondary)
-                    .accessibilityLabel("\(store.sessions.count) sessions")
+                Text("\(sortedSessions.count)").font(.system(size: 10)).foregroundStyle(ArenaPalette.secondary)
+                    .accessibilityLabel("\(sortedSessions.count) sessions")
             }
             .padding(.horizontal, 16).frame(height: 56)
+            Picker("Session folder", selection: $folder) {
+                ForEach(SessionFolder.allCases, id: \.self) { folder in Text(folder.rawValue).tag(folder) }
+            }
+            .pickerStyle(.menu).labelsHidden().padding(.horizontal, 12).padding(.bottom, 8)
+            .accessibilityLabel("Session folder")
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(sortedSessions) { session in
@@ -147,8 +159,7 @@ struct ArenaView: View {
                         .buttonStyle(ArenaButtonStyle(cornerRadius: 7))
                         .accessibilityAddTraits(selection == session.id ? .isSelected : [])
                         .contextMenu {
-                            Button("Edit Session…") { editingSession = session }
-                            lifecycleButton(session)
+                            sessionMenuItems(session)
                         }
                     }
                 }.padding(.horizontal, 8).padding(.vertical, 4)
@@ -160,6 +171,9 @@ struct ArenaView: View {
                 selection = sortedSessions[min(max(current + (direction == .up ? -1 : 1), 0), sortedSessions.count - 1)].id
             }
             .accessibilityLabel("Sessions")
+            if let error = store.retentionError {
+                Text(error).font(.caption).foregroundStyle(.red).padding(12).textSelection(.enabled)
+            }
             VStack(spacing: 0) {
                 ArenaPalette.divider.frame(height: 1)
                 HStack(spacing: 0) {
@@ -199,7 +213,9 @@ struct ArenaView: View {
         .overlay(alignment: .bottom) { ArenaPalette.divider.frame(height: 1) }
     }
 
-    private var sortedSessions: [ArenaSession] { store.sessions.sorted { $0.updatedAt > $1.updatedAt } }
+    private var sortedSessions: [ArenaSession] {
+        store.sessions.filter { folder.contains($0) }.sorted { $0.updatedAt > $1.updatedAt }
+    }
 
     private var sessionActions: some View {
         HStack(spacing: 10) {
@@ -208,9 +224,8 @@ struct ArenaView: View {
                 .keyboardShortcut("n").help("New Session").accessibilityLabel("New Session")
             if let session = selected {
                 Menu {
-                    Button("Edit Session…") { editingSession = session }
+                    sessionMenuItems(session)
                     Button("View Session Activity…") { showingActivity = true }
-                    lifecycleButton(session)
                 } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
                 .modifier(ArenaHoverFeedback())
                 .menuIndicator(.hidden).help("Session Actions").accessibilityLabel("Session Actions")
@@ -227,6 +242,44 @@ struct ArenaView: View {
             .help("Session Details").accessibilityLabel("Session Details")
     }
 
+    @ViewBuilder private func sessionMenuItems(_ session: ArenaSession) -> some View {
+        Button("Copy Name", systemImage: "doc.on.doc") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(session.name, forType: .string)
+        }
+        if session.isStoredAway {
+            Button("Restore Session", systemImage: "arrow.uturn.backward") { restore(session) }
+        } else {
+            Button("Edit Session…") { editingSession = session }
+            lifecycleButton(session)
+            Divider()
+            Button("Archive Session", systemImage: "archivebox") { perform { try store.archiveSession(session.id) } }
+        }
+        if session.deletedAt == nil {
+            Button("Delete Session", systemImage: "trash", role: .destructive) { perform { try store.deleteSession(session.id) } }
+        }
+    }
+
+    private func restore(_ session: ArenaSession) {
+        perform { try store.restoreSession(session.id); folder = .sessions; selection = session.id }
+    }
+
+    private func retentionBanner(_ session: ArenaSession) -> some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.deletedAt == nil ? "Archived" : "Recently Deleted").fontWeight(.semibold)
+                if let deadline = session.retentionDeadline {
+                    Text("\(session.deletedAt == nil ? "Moves to Recently Deleted" : "Recover by") \(deadline.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(ArenaPalette.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+            Button("Restore Session") { restore(session) }
+                .buttonStyle(ArenaKeyboardButtonStyle()).foregroundStyle(ArenaPalette.consensus)
+                .help("Return to Sessions. Reopen separately to resume discussion.")
+        }.padding(.horizontal, 16).padding(.vertical, 14).background(ArenaPalette.panel)
+    }
+
     @ViewBuilder private func lifecycleButton(_ session: ArenaSession) -> some View {
         if session.status.isClosed {
             Button("Reopen Discussion", systemImage: "arrow.counterclockwise") { perform { try store.reopenSession(session.id) } }
@@ -237,6 +290,17 @@ struct ArenaView: View {
 
     private func perform(_ action: () throws -> Void) {
         do { try action() } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+enum SessionFolder: String, CaseIterable {
+    case sessions = "Sessions", archive = "Archive", deleted = "Recently Deleted"
+    func contains(_ session: ArenaSession) -> Bool {
+        switch self {
+        case .sessions: !session.isStoredAway
+        case .archive: session.archivedAt != nil && session.deletedAt == nil
+        case .deleted: session.deletedAt != nil
+        }
     }
 }
 

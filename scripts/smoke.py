@@ -149,6 +149,21 @@ class MCPClient:
     def agent(self, name, **arguments):
         return self.call(name, dict(participant_token=self.participant_token, **arguments))[0]
 
+    def contribute(self, name, **arguments):
+        """One complete test contribution per turn, retaining original inputs for retries."""
+        if not hasattr(self, 'request_turns'):
+            self.request_turns = {}
+        request = arguments['request_id']
+        if request not in self.request_turns:
+            self.request_turns[request] = arguments.get('turn_id') or self.agent('start_turn', request_id=request + '-turn')['id']
+        turn = self.request_turns[request]
+        arguments['turn_id'] = turn
+        result = self.agent(name, **arguments)
+        current = self.agent('read_session')['turn']
+        if current and current['id'] == turn:
+            self.agent('finish_turn', request_id=request + '-finish', turn_id=turn)
+        return result
+
 
 def run():
     with FixtureServer() as server:
@@ -178,7 +193,7 @@ def run():
         names = [p['name'] for p in joined['participants']]
         assert len(set(names)) == 2
         tools = first.rpc('tools/list', {})['result']['tools']
-        assert len(tools) == 11, tools
+        assert len(tools) == 13, len(tools)
         first.call('read_session', {'participant_token': 'invalid'}, error=True)
         try:
             urllib.request.urlopen(urllib.request.Request(fixture['endpoint'], b'{}', {'Content-Type': 'application/json'}))
@@ -193,16 +208,17 @@ def run():
                 raise AssertionError('Untrusted origin/host accepted')
             except urllib.error.HTTPError as error:
                 assert error.code in (400, 403), error.code
+        beta_turn = second.agent('start_turn', request_id='beta-turn')['id']
         before = first.agent('read_session')
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             pending = executor.submit(first.agent, 'read_events', after_cursor=before['latest_cursor'], wait_seconds=3)
             time.sleep(.15)
-            message = second.agent('post_message', request_id='beta-message', text='Bounded waits prevent indefinite blocked calls.')
+            message = second.contribute('post_message', request_id='beta-message', turn_id=beta_turn, text='Bounded waits prevent indefinite blocked calls.')
             event_batch = pending.result(timeout=5)
         assert event_batch['events'][-1]['id'] == message['id']
-        assert second.agent('post_message', request_id='beta-message', text='Bounded waits prevent indefinite blocked calls.')['id'] == message['id']
+        assert second.contribute('post_message', request_id='beta-message', turn_id=beta_turn, text='Bounded waits prevent indefinite blocked calls.')['id'] == message['id']
         second.call('post_message', dict(participant_token=second.participant_token, request_id='beta-message', text='Changed input'), error=True)
-        rebuttal = first.agent('post_message', request_id='alpha-rebuttal', text='Bounded waits also need cursor catch-up.', message_type='rebuttal', reply_to=message['id'])
+        rebuttal = first.contribute('post_message', request_id='alpha-rebuttal', text='Bounded waits also need cursor catch-up.', message_type='rebuttal', reply_to=message['id'])
         assert rebuttal['messageType'] == 'rebuttal' and rebuttal['replyTo'] == message['id']
         state = first.agent('read_session')
         start = time.monotonic()
@@ -220,18 +236,18 @@ def run():
         first.call('read_attachment', dict(participant_token=first.participant_token, attachment_id=attachment_ids['review.pdf'], representation='original'), error=True)
         upload = first.agent('attach_file', request_id='upload', path=fixture['files'][0])
         assert first.agent('attach_file', request_id='upload', path=fixture['files'][0]) == upload
-        first.agent('post_message', request_id='attachment-message', text='Evidence attached.', attachment_ids=[upload['id']])
+        first.contribute('post_message', request_id='attachment-message', text='Evidence attached.', attachment_ids=[upload['id']])
         unrelated = MCPClient(fixture)
         unrelated.join(fixture['sessions'][2]['id'], 'isolated')
         unrelated.call('read_attachment', dict(participant_token=unrelated.participant_token, attachment_id=attachment_ids['proposal.md']), error=True)
         state = first.agent('read_session')
-        proposal = first.agent('propose_outcome', request_id='proposal-old', outcome='consensus', assessment='Bounded waits with cursor catch-up.', based_on_revision=state['revision'])
+        proposal = first.contribute('propose_outcome', request_id='proposal-old', outcome='consensus', assessment='Bounded waits with cursor catch-up.', based_on_revision=state['revision'])
         first.agent('confirm_outcome', request_id='confirm-old', proposal_id=proposal['id'])
-        second.agent('post_message', request_id='new-discussion', text='Also cancel waits on disconnect.')
+        second.contribute('post_message', request_id='new-discussion', text='Also cancel waits on disconnect.')
         second.call('confirm_outcome', dict(participant_token=second.participant_token, request_id='stale-confirm', proposal_id=proposal['id']), error=True)
         assert first.agent('read_session')['proposal'] is None
         state = first.agent('read_session')
-        proposal = second.agent('propose_outcome', request_id='proposal-new', outcome='consensus', assessment='Bounded waits, durable cursors, and cancellation on disconnect.', based_on_revision=state['revision'])
+        proposal = second.contribute('propose_outcome', request_id='proposal-new', outcome='consensus', assessment='Bounded waits, durable cursors, and cancellation on disconnect.', based_on_revision=state['revision'])
         assert first.agent('confirm_outcome', request_id='confirm-new-a', proposal_id=proposal['id'])['status'] == 'active'
         assert second.agent('confirm_outcome', request_id='confirm-new-b', proposal_id=proposal['id'])['status'] == 'consensus'
         first.call('post_message', dict(participant_token=first.participant_token, request_id='after-close', text='Cannot post'), error=True)
@@ -242,13 +258,13 @@ def run():
         for index, client in enumerate(clients):
             client.join(fixture['sessions'][1]['id'], 'tri-' + str(index))
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            posts = list(executor.map(lambda pair: pair[1].agent('post_message', request_id='peer-message', text='Perspective ' + str(pair[0])), enumerate(clients)))
+            posts = [client.contribute('post_message', request_id='peer-message', text='Perspective ' + str(index)) for index, client in enumerate(clients)]
         assert len({post['id'] for post in posts}) == 3
         shared = clients[0].agent('attach_file', request_id='shared-source', path=fixture['files'][0])
         for client in clients:
             assert 'cobalt lantern' in client.agent('read_attachment', attachment_id=shared['id'])['text']
         state = clients[0].agent('read_session')
-        proposal = clients[0].agent('propose_outcome', request_id='impasse', outcome='impasse', assessment='The peers disagree on the latency budget.', based_on_revision=state['revision'])
+        proposal = clients[0].contribute('propose_outcome', request_id='impasse', outcome='impasse', assessment='The peers disagree on the latency budget.', based_on_revision=state['revision'])
         for index, client in enumerate(clients):
             status = client.agent('confirm_outcome', request_id='tri-confirm', proposal_id=proposal['id'])['status']
             assert status == ('impasse' if index == 2 else 'active')

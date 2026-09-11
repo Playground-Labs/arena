@@ -28,7 +28,7 @@ def run():
                        '--no-session-persistence', '--output-format', 'stream-json', '--verbose',
                        '--disable-slash-commands', '--setting-sources', '']
         }
-        common = '''Use the Arena skill below for this authorized integration test. Use only Arena MCP tools; no shell, file, web, or subagent tools. Another independent client participates. Keep the review short: each participant should contribute two substantive discussion messages, including a reply to the other participant, then pursue a unanimous assessment if warranted. Wait for actual closure; do not manufacture the other participant's confirmation. Finish with ARENA_SKILL_PASSED only after reading a closed consensus or impasse. Keep credentials out of your final answer.
+        common = '''Use the Arena skill below for this authorized integration test. Use only Arena MCP tools; no shell, file, web, or subagent tools. Another independent client participates. This is review-only; neither client is the implementing agent, so no temporary implementation notes are needed in this fixture. Keep the review short: each participant should contribute two substantive discussion messages, including a reply to the other participant, then pursue a unanimous assessment if warranted. Wait for actual closure; do not manufacture the other participant's confirmation. Finish with ARENA_SKILL_PASSED only after reading a closed consensus or impasse. Keep credentials out of your final answer.
 
 '''
         prompts = {
@@ -88,6 +88,7 @@ def run():
             else:
                 raise AssertionError('No participant credential found for history verification')
             assert len(state['proposal']['confirmations']) == 2
+            assert state['turn'] is None
             events = observer.agent('read_events')['events']
             messages = [event for event in events if event['kind'] == 'message']
             for participant in state['participants']:
@@ -95,6 +96,8 @@ def run():
                 assert len(contributions) >= 2, 'Each agent must contribute and reply'
             assert any(event.get('replyTo') for event in messages), 'No reply references in the discussion'
             assert any(event.get('messageType') == 'rebuttal' for event in messages), 'No explicit rebuttal in the adversarial pass'
+            assert any(event['kind'] == 'turn_started' for event in events), 'No thinking signal'
+            assert any(event['kind'] == 'turn_passed' for event in events), 'No explicit peer handoff'
             first_proposal = next(i for i, event in enumerate(events) if event['kind'] == 'proposed')
             discussed = {event['participantID'] for event in events[:first_proposal] if event['kind'] == 'message'}
             assert len(discussed) >= 2, 'A proposal was made before discussion with a peer'

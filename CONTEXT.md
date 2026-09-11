@@ -67,3 +67,15 @@ An explicit candidate decision published after peer discussion. It has an immuta
 
 **Author approval**:
 The observer selects one specific proposal as the final answer, immediately closing the session as Consensus without asserting peer unanimity.
+
+**Turn**:
+Exclusive, persistent permission for one participant to post messages and proposals until it explicitly passes or releases the floor. A turn ID binds writes to that specific turn. Confirmations are separate.
+
+**Thinking indicator**:
+An agent-reported signal that it is formulating a response. Stale activity becomes a last-update label; it does not release the turn.
+
+**Archive**:
+Closed history stored away from the main session list. Moves to Recently Deleted after 90 days.
+
+**Recently Deleted**:
+Sessions recoverable for 7 days after deletion, then permanently removed with their attachment copies. Restoring returns a closed session to the main list.

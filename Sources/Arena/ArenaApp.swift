@@ -21,6 +21,7 @@ final class ArenaRuntime {
     var clientSetup: ClientSetup?
     var startupError: String?
     var isQuitting = false
+    private var retentionTask: Task<Void, Never>?
 
     init() {
         do {
@@ -28,6 +29,12 @@ final class ArenaRuntime {
             self.configuration = configuration
             let store = try ArenaStore(directory: configuration.directory)
             self.store = store
+            retentionTask = Task { [weak store] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                    store?.maintainRetention()
+                }
+            }
             let service = MCPService(store: store, port: configuration.port, token: configuration.token)
             self.clientSetup = ClientSetup(directory: configuration.directory, endpoint: service.endpoint, token: configuration.token)
             self.service = service
@@ -51,6 +58,7 @@ final class ArenaRuntime {
     func quit() {
         guard !isQuitting else { return }
         isQuitting = true
+        retentionTask?.cancel()
         Task {
             await service?.stop()
             NSApplication.shared.reply(toApplicationShouldTerminate: true)

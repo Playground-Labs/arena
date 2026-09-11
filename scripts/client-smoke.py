@@ -26,7 +26,7 @@ def run():
 1. Call register_client, retain client_token, and join with session_id SESSION_ID, client_token, request_id LABEL-join, client LABEL, model your actual model identifier if known or "unknown (client default)".
 2. Retain your private participant_token. Read/wait until both test agents have joined.
 3. Read all three brief attachments THROUGH MCP: Markdown text, PNG as image, PDF as text AND page 1 as image. Inspect the returned visual content. Do not infer image/PDF contents from filenames.
-4. Post exactly one discussion message with request_id LABEL-message. Include the marker LABEL_VERIFIED and quote the short verification phrase you read in the Markdown, the characters visible in the PNG, and the verification phrase in the PDF. Also briefly critique the proposal for bounded waits. Do not post extra discussion messages after this.
+4. Read turn. If held by the other agent, wait for its handoff. Call start_turn once open or offered to you; retain id as turn_id. Post exactly one discussion message with request_id LABEL-message. Include the marker LABEL_VERIFIED and quote the short verification phrase you read in the Markdown, the characters visible in the PNG, and the verification phrase in the PDF. Also briefly critique the proposal for bounded waits. Include turn_id. Call finish_turn after the message, omitting next_participant_id to release the floor. Do not post extra discussion messages after this.
 5. Call read_events with a current cursor and wait_seconds:1 at least once. Read/wait until the other agent's message is present. Poll at most 20 times; fail clearly if the other agent is absent.
 ROLE
 6. Read the final session status and finish with ARENA_CLIENT_PASSED only if it is consensus. If a tool fails, report it accurately instead of claiming success. Never print credentials in your final answer.
@@ -40,7 +40,7 @@ ROLE
                        '--disable-slash-commands', '--setting-sources', '']
         }
         roles = {
-            'codex': 'After both messages exist, read_session for its current revision. Propose consensus once (request_id codex-outcome), assessment "Use bounded waits, durable cursor catch-up, and cancellation on disconnect." Explicitly confirm your proposal (request_id codex-confirm). Then read/wait for the other confirmation; at most 20 waits.',
+            'codex': 'After both messages exist, read_session for its current revision. Claim an open turn with start_turn (wait if occupied). Propose consensus with its turn_id once (request_id codex-outcome), assessment "Use bounded waits, durable cursor catch-up, and cancellation on disconnect." Explicitly confirm your proposal (request_id codex-confirm). Finish your turn without a recipient unless already closed. Then read/wait for the other confirmation; at most 20 waits.',
             'claude': 'After both messages exist, read/wait until Codex proposes a consensus assessment. Do not propose your own. Explicitly confirm its proposal_id with request_id claude-confirm. At most 20 waits.'
         }
         running = {}

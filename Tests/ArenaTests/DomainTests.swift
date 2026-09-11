@@ -8,6 +8,7 @@ import SwiftData
 @MainActor
 final class DomainTests: XCTestCase {
     private var directories: [URL] = []
+    private var requestTurns: [String: String] = [:]
     private func directory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ArenaTests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -28,8 +29,32 @@ final class DomainTests: XCTestCase {
         return (store, id, tokens)
     }
     private func call(_ store: ArenaStore, _ tool: String, _ token: String, _ args: [String: JSONValue] = [:], request: String? = nil) async throws -> ArenaToolResult {
-        var args = args; args["participant_token"] = .string(token); args["request_id"] = .string(request ?? UUID().uuidString)
-        return try await store.execute(tool: tool, arguments: args)
+        var args = args
+        let request = request ?? UUID().uuidString
+        args["participant_token"] = .string(token); args["request_id"] = .string(request)
+        // Existing domain scenarios use one contribution per turn. Turn-specific tests call execute directly.
+        guard ["post_message", "propose_outcome"].contains(tool) else { return try await store.execute(tool: tool, arguments: args) }
+        let key = token + request
+        let turn: String
+        if let saved = requestTurns[key] { turn = saved }
+        else {
+            let started = try await store.execute(tool: "start_turn", arguments: ["participant_token": .string(token), "request_id": .string(request + "-turn")])
+            turn = try XCTUnwrap(started.data.objectValue?["id"]?.stringValue)
+            requestTurns[key] = turn
+        }
+        args["turn_id"] = .string(turn)
+        do {
+            let result = try await store.execute(tool: tool, arguments: args)
+            if store.sessions.contains(where: { $0.turn?.id == turn }) {
+                _ = try await store.execute(tool: "finish_turn", arguments: ["participant_token": .string(token), "request_id": .string(request + "-finish"), "turn_id": .string(turn)])
+            }
+            return result
+        } catch {
+            if store.sessions.contains(where: { $0.turn?.id == turn }) {
+                _ = try? await store.execute(tool: "finish_turn", arguments: ["participant_token": .string(token), "request_id": .string(request + "-finish"), "turn_id": .string(turn)])
+            }
+            throw error
+        }
     }
     private func reject(_ action: () async throws -> Void, file: StaticString = #filePath, line: UInt = #line) async {
         do { try await action(); XCTFail("Expected rejection", file: file, line: line) } catch { XCTAssertFalse(error.localizedDescription.isEmpty, file: file, line: line) }
@@ -333,13 +358,15 @@ final class DomainTests: XCTestCase {
             let joined = try await join(store, store.sessions[0].id)
             tokens.append(try XCTUnwrap(joined.data.objectValue?["participant_token"]?.stringValue))
         }
+        let started = try await store.execute(tool: "start_turn", arguments: ["participant_token": .string(tokens[0]), "request_id": .string("save-turn")])
+        let args: [String: JSONValue] = ["participant_token": .string(tokens[0]), "request_id": .string("save"), "turn_id": started.data.objectValue!["id"]!, "text": .string("Retry after disk failure")]
         failSave = true
         let before = try JSONValue.encode(store.sessions)
-        await reject { _ = try await self.call(store, "post_message", tokens[0], ["text": .string("Retry after disk failure")], request: "save") }
+        await reject { _ = try await store.execute(tool: "post_message", arguments: args) }
         XCTAssertEqual(try JSONValue.encode(store.sessions), before)
         XCTAssertEqual(try JSONValue.encode(ArenaStore(directory: path).sessions), before)
         failSave = false
-        _ = try await call(store, "post_message", tokens[0], ["text": .string("Retry after disk failure")], request: "save")
+        _ = try await store.execute(tool: "post_message", arguments: args)
         XCTAssertEqual(store.sessions[0].events.filter { $0.kind == "message" }.count, 1)
     }
 

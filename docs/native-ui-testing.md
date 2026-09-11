@@ -34,3 +34,19 @@ Fictional session names: the new-session form prefills one of 160 unique locatio
 Open participation and author approval: setup has no headcount control; the roster grows as agents join, and old invitations/credentials still work. Comment and Rebuttal labels distinguish discussion from explicit proposal cards. The Paper Author approval light/dark flows show peer discussion, amber pending proposals, the green Keep-style Accept link, right-click acceptance, and the green author-selected final answer. Paper checks covered alignment, text contrast, spacing, and clipping. Acceptance binds an immutable proposal event ID and the current card has proposal-specific view identity, preventing a replacement proposal from reusing its action.
 
 All 38 tests passed (`.context/approval-test.log`), covering late joins, credential upgrades, proposal invalidation, solo-agent unanimity prevention, exact selection despite intervening discussion, closure wakeups, restart/reopen, typed rebuttals, and legacy invitation compatibility. The app build passed (`.context/open-join-build.log`). HTTP and real Codex/Claude attachment/closure smoke tests passed; the real skill test passed after tightening classification of targeted corrections as rebuttals, and verifies both agents discussed before proposing (`.context/open-join-{http,client,skill}-smoke.log`). Both installed skills match the updated bundle. Native click, right-click, and visual checks for this pass remain pending because computer-use native pipe startup is unavailable; prior native checks above do not verify this new interaction.
+
+## Agent turns, message arrival, and session retention
+
+Paper's **Turns and activity** and **Archive and recovery** boards show both appearances. Reviewed spacing, typography, contrast, alignment, and fit. New native controls use the existing compact palette and native context menus.
+
+Implemented: Copy Name in session actions/right-click; 250 ms message arrival animation with history left still; agent-reported thinking and reserved-handoff states; Sessions/Archive/Recently Deleted folder menu; retention deadline and Restore Session banner. Reduce Motion disables arrival movement and thinking animation. Archive/Delete stop open discussions; restore does not reopen them.
+
+Verification: 45 Swift tests passed, including exclusive claims, multiple messages per turn, stale turn IDs, handoff wakeups, restart, closure, retention boundaries, startup expiry, restore, disk-failure preservation, attachment cleanup, and retired creation retries. Native build, HTTP smoke, real Codex/Claude attachment smoke, and real skill-driven handoff/consensus smoke passed. The skill smoke fixture is review-only; temporary-note creation and post-consensus implementation instructions still need validation in an actual implementation task.
+
+Native visual/click verification remains pending: CUA native pipe startup failed and macOS denied AppleScript assistive access. Manual checks for this change:
+
+- Right-click any session and Copy Name; paste to verify the exact current name.
+- Watch a start_turn, multi-message contribution, thinking refresh, and finish_turn. Confirm the current agent is named; another agent cannot interrupt. Paused activity becomes a static last-update label after two minutes.
+- Watch message arrival from both sides. Switching sessions/loading history should not replay animations. Check Reduce Motion and VoiceOver labels.
+- Archive an active disposable session; it must disappear from Sessions and show Stopped in Archive. Restore it; history remains and discussion stays stopped until Reopen.
+- Delete a disposable session; find it in Recently Deleted, inspect its recovery deadline, restore it, and preview its attachments. Verify the folder menu and actions with keyboard/VoiceOver in Light and Dark.

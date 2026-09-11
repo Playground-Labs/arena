@@ -5,6 +5,13 @@ struct ConversationView: View {
     let session: ArenaSession
     let accept: (String) -> Void
     let preview: (Attachment) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var initialCursor: Int
+
+    init(session: ArenaSession, accept: @escaping (String) -> Void, preview: @escaping (Attachment) -> Void) {
+        self.session = session; self.accept = accept; self.preview = preview
+        _initialCursor = State(initialValue: session.latestCursor)
+    }
 
     var body: some View {
         let rightSpeakers = session.rightAlignedParticipantIDs
@@ -46,6 +53,7 @@ struct ConversationView: View {
                         ForEach(session.events.filter { $0.kind == "message" || $0.kind == "proposed" }) { event in
                             if event.kind == "message", let participant = session.participants.first(where: { $0.id == event.participantID }) {
                                 MessageBubble(event: event, participant: participant, session: session, isRightAligned: rightSpeakers.contains(participant.id), preview: preview)
+                                    .modifier(MessageArrival(animate: event.cursor > initialCursor, right: rightSpeakers.contains(participant.id)))
                                     .id(event.id)
                             } else if event.kind == "proposed" {
                                 DisclosureGroup {
@@ -59,6 +67,7 @@ struct ConversationView: View {
                                 }
                                 .padding(.horizontal, 12).padding(.vertical, 10)
                                 .background(session.status.isClosed ? ArenaPalette.toolbar : ArenaPalette.pendingProposalFill, in: RoundedRectangle(cornerRadius: 10))
+                                .modifier(MessageArrival(animate: event.cursor > initialCursor))
                                 .id(event.id)
                                 .contextMenu {
                                     if !session.status.isClosed {
@@ -69,7 +78,12 @@ struct ConversationView: View {
                         }
                         if let proposal = session.proposal {
                             OutcomeCard(proposal: proposal, session: session, accept: accept, showSource: { id in proxy.scrollTo(id, anchor: .center) })
+                                .modifier(MessageArrival(animate: session.events.last(where: { $0.kind == "proposed" })?.cursor ?? 0 > initialCursor))
                                 .id(proposal.id)
+                        }
+                        if let turn = session.turn, !session.status.isClosed,
+                           let participant = session.joinedParticipants.first(where: { $0.id == turn.participantID }) {
+                            TurnActivityView(turn: turn, name: participant.name)
                         }
                         Color.clear.frame(height: 1).id("latest")
                     }.padding(24)
@@ -77,17 +91,69 @@ struct ConversationView: View {
                 .background(ArenaPalette.canvas)
                 .onAppear { proxy.scrollTo("latest", anchor: .bottom) }
                 .onChange(of: session.events.count) { _, _ in
-                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("latest", anchor: .bottom) }
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { proxy.scrollTo("latest", anchor: .bottom) }
                 }
                 .onChange(of: session.id) { _, _ in proxy.scrollTo("latest", anchor: .bottom) }
             }
             ArenaPalette.divider.frame(height: 1)
             HStack(spacing: 7) {
                 Image(systemName: "eye")
-                Text(session.status.isClosed ? "Discussion \(session.status.title.lowercased()) · Reopen from Session Actions" : "Observer mode · Only agents post · You can accept a final answer")
+                Text(session.isStoredAway ? "Stored history · Restore the session before reopening" : session.status.isClosed ? "Discussion \(session.status.title.lowercased()) · Reopen from Session Actions" : "Observer mode · Only agents post · You can accept a final answer")
                 Spacer()
             }
             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.vertical, 12)
+        }
+    }
+}
+
+/// New events animate once; loading old history or switching sessions stays still.
+private struct MessageArrival: ViewModifier {
+    let animate: Bool
+    var right = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+    private var entering: Bool { animate && !reduceMotion && !appeared }
+    func body(content: Content) -> some View {
+        content
+            .opacity(entering ? 0 : 1)
+            .offset(y: entering ? 10 : 0)
+            .scaleEffect(entering ? 0.97 : 1, anchor: right ? .bottomTrailing : .bottomLeading)
+            .onAppear {
+                withAnimation(animate && !reduceMotion ? .easeOut(duration: 0.25) : nil) { appeared = true }
+            }
+    }
+}
+
+private struct TurnActivityView: View {
+    let turn: DiscussionTurn
+    let name: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: reduceMotion ? 15 : 0.4)) { context in
+            let thinking = turn.isThinking(at: context.date)
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    if thinking {
+                        ForEach(0..<3) { index in
+                            Circle().frame(width: 5, height: 5)
+                                .opacity(reduceMotion ? 1 : (Int(context.date.timeIntervalSince1970 / 0.4) % 3 == index ? 1 : 0.4))
+                        }
+                    } else {
+                        Image(systemName: turn.phase == .offered ? "arrow.right" : "ellipsis")
+                    }
+                }.frame(width: 30).accessibilityHidden(true)
+                if thinking {
+                    Text("\(name) is formulating a response…")
+                } else if turn.phase == .offered {
+                    Text("Waiting for \(name) to take the turn")
+                } else {
+                    (Text("\(name) holds the turn · Last update ") + Text(turn.updatedAt, style: .relative) + Text(" ago"))
+                }
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary).frame(minHeight: 32)
+            .accessibilityElement(children: .combine)
+            .help("Activity is reported by the agent. The turn stays assigned until the agent passes or releases it. Stop and reopen the discussion to clear an abandoned turn.")
         }
     }
 }
@@ -337,8 +403,9 @@ struct SessionInspector: View {
         """
         Use the Arena skill to join session "\(session.id)" (\(session.name)) through Arena MCP at \(endpoint).
         Register once with register_client and privately retain client_token. Call join_session with session_id, client_token, your client/model labels, and a fresh request_id. Save participant_token and use it to reconnect; keep all credentials private.
-        Read the brief and attachments, then post your opening comment. Use post_message with message_type comment for observations and tentative ideas, or rebuttal with reply_to for a targeted challenge. Agents may join at any time while the session is open. Keep reading read_events with the last cursor and wait_seconds 25, responding when you have a substantive critique or improvement.
+        Read the brief and attachments, then claim a turn before posting your opening comment. Use post_message with message_type comment for observations and tentative ideas, or rebuttal with reply_to for a targeted challenge. Agents may join at any time while the session is open. Keep reading read_events with the last cursor and wait_seconds 25, responding when you have a substantive critique or improvement.
         Aim to earn the author's approval through the strongest supported proposal: explain the recommendation, trade-offs, evidence, and remaining risks. Exchange comments and targeted rebuttals with a peer before presenting a concrete solution through propose_outcome so the author can accept that specific proposal and close the session immediately. Agents may also propose Consensus or Impasse and unanimously confirm it once at least two agents have joined. New messages or new arrivals invalidate pending assessments. Stop when status is consensus, impasse, or stopped.
+        \(MCPTools.turnInstructions)
         Arena hosts the discussion; it does not launch or keep external agents running.
         """
     }

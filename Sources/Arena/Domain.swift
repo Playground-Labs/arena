@@ -65,13 +65,31 @@ struct OutcomeProposal: Identifiable, Codable, Sendable {
     var acceptedEventID: String?
     var sourceEventID: String?
 }
+struct DiscussionTurn: Identifiable, Codable, Sendable {
+    var id: String = UUID().uuidString
+    var participantID: String
+    var phase: Phase = .thinking
+    var updatedAt: Date = .now
+    enum Phase: String, Codable, Sendable { case offered, thinking, speaking }
+    func isThinking(at date: Date) -> Bool { phase == .thinking && date.timeIntervalSince(updatedAt) < 120 }
+}
 struct ArenaSession: Identifiable, Codable, Sendable {
     var id: String; var name: String; var brief: String; var status: SessionStatus; var revision: Int
     var createdAt: Date; var updatedAt: Date; var participants: [Participant]; var events: [ArenaEvent]
     var attachments: [Attachment]; var proposal: OutcomeProposal?
+    var turn: DiscussionTurn?
+    var archivedAt: Date?
+    var deletedAt: Date?
+    static let archiveLifetime: TimeInterval = 90 * 24 * 60 * 60
+    static let deletionLifetime: TimeInterval = 7 * 24 * 60 * 60
+    var isStoredAway: Bool { archivedAt != nil || deletedAt != nil }
+    var retentionDeadline: Date? {
+        if let deletedAt { return deletedAt.addingTimeInterval(Self.deletionLifetime) }
+        return archivedAt?.addingTimeInterval(Self.archiveLifetime)
+    }
     var joinedParticipants: [Participant] { participants.filter { $0.joinedAt != nil } }
     var latestCursor: Int { events.last?.cursor ?? 0 }
     func publicValue(participant: Participant) throws -> JSONValue {
-        .object(["id": .string(id), "name": .string(name), "brief": .string(brief), "status": .string(status.rawValue), "revision": .int(revision), "latest_cursor": .int(latestCursor), "participants": .array(joinedParticipants.map(\.publicValue)), "participant": participant.publicValue, "attachments": .array(attachments.map(\.publicValue)), "proposal": try proposal.map(JSONValue.encode) ?? .null])
+        .object(["id": .string(id), "name": .string(name), "brief": .string(brief), "status": .string(status.rawValue), "revision": .int(revision), "latest_cursor": .int(latestCursor), "participants": .array(joinedParticipants.map(\.publicValue)), "participant": participant.publicValue, "attachments": .array(attachments.map(\.publicValue)), "proposal": try proposal.map(JSONValue.encode) ?? .null, "turn": try turn.map(JSONValue.encode) ?? .null])
     }
 }
