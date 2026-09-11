@@ -163,6 +163,7 @@ private struct OutcomeCard: View {
         Group {
                 ForEach(session.participants) { participant in
                     Label(participant.name, systemImage: proposal.confirmations.contains(participant.id) ? "checkmark" : "circle")
+                        .accessibilityLabel("\(participant.name): \(proposal.confirmations.contains(participant.id) ? "Confirmed" : "Pending confirmation")")
                         .font(.caption).foregroundStyle(proposal.confirmations.contains(participant.id) ? SessionStatus.consensus.color : .secondary)
                 }
         }
@@ -185,7 +186,7 @@ struct SessionInspector: View {
                 }
                 ArenaPalette.divider.frame(height: 1)
                 VStack(alignment: .leading, spacing: 20) {
-                    inspectorHeading("FIGHTERS")
+                    inspectorHeading("AGENTS")
                     ForEach(session.participants) { participant in
                         VStack(alignment: .leading, spacing: 9) {
                             HStack(spacing: 9) {
@@ -212,7 +213,7 @@ struct SessionInspector: View {
                 ArenaPalette.divider.frame(height: 1)
                 VStack(alignment: .leading, spacing: 20) {
                     inspectorHeading("HOW THIS ENDS")
-                    Text("Every fighter must confirm the same assessment. A new message clears pending confirmations. Agreement and unresolved disagreement are both valid outcomes.")
+                    Text("Every agent must confirm the same assessment. A new message clears pending confirmations. Agreement and unresolved disagreement are both valid outcomes.")
                         .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary).lineSpacing(4)
                 }
             }.padding(24)

@@ -39,6 +39,7 @@ struct AttachmentPreview: View {
     @State private var error: String?
     @State private var text: String?
     @State private var image: NSImage?
+    @State private var document: PDFDocument?
     @State private var truncated = false
 
     var body: some View {
@@ -58,8 +59,8 @@ struct AttachmentPreview: View {
             Group {
                 if let error {
                     ContentUnavailableView("Preview unavailable", systemImage: "exclamationmark.triangle", description: Text(error))
-                } else if let url, selection.attachment.mimeType == "application/pdf" {
-                    PDFPreview(url: url)
+                } else if let document {
+                    PDFPreview(document: document)
                 } else if let image {
                     ScrollView([.horizontal, .vertical]) {
                         Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: 850, maxHeight: 680)
@@ -81,36 +82,35 @@ struct AttachmentPreview: View {
                 }
             }
         }.frame(width: 850, height: 640)
-        .onAppear { load() }
+        .task { await load() }
     }
 
-    private func load() {
+    private func load() async {
         do {
             let url = try store.attachmentURL(sessionID: selection.sessionID, attachmentID: selection.attachment.id)
             self.url = url
             if selection.attachment.mimeType == "application/pdf" {
-                guard PDFDocument(url: url) != nil else { throw CocoaError(.fileReadCorruptFile) }
+                document = try await AttachmentFiles.shared.previewPDF(url: url)
             } else if selection.attachment.mimeType.hasPrefix("image/") {
-                guard let image = NSImage(contentsOf: url) else { throw CocoaError(.fileReadCorruptFile) }
+                let result = try await AttachmentFiles.shared.read(selection.attachment, url: url, representation: "image", page: 1, offset: 0, limit: 1)
+                guard let data = result.images.first?.data, let image = NSImage(data: data) else { throw CocoaError(.fileReadCorruptFile) }
                 self.image = image
             } else {
-                let handle = try FileHandle(forReadingFrom: url)
-                defer { try? handle.close() }
-                let data = try handle.read(upToCount: 200_001) ?? Data()
-                truncated = data.count > 200_000
-                text = String(decoding: data.prefix(200_000), as: UTF8.self)
+                let result = try await AttachmentFiles.shared.previewText(url: url)
+                truncated = result.truncated
+                text = result.text
             }
         } catch { self.error = error.localizedDescription }
     }
 }
 
 private struct PDFPreview: NSViewRepresentable {
-    let url: URL
+    let document: PDFDocument
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
         view.autoScales = true
         view.displayMode = .singlePageContinuous
-        view.document = PDFDocument(url: url)
+        view.document = document
         return view
     }
     func updateNSView(_ nsView: PDFView, context: Context) {}

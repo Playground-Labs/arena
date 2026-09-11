@@ -16,6 +16,7 @@ private struct MutationReceipt: Codable {
 private struct ArenaSnapshot: Codable {
     var sessions: [ArenaSession] = []
     var receipts: [String: MutationReceipt] = [:]
+    var clientTokens: Set<String>?
 }
 
 @MainActor @Observable
@@ -23,12 +24,14 @@ final class ArenaStore {
     private(set) var sessions: [ArenaSession]
     private let directory: URL
     @ObservationIgnored private let context: ModelContext
+    @ObservationIgnored private let saveContext: (ModelContext) throws -> Void
     @ObservationIgnored private var snapshot: ArenaSnapshot
     @ObservationIgnored private var waiters: [UUID: (session: String, continuation: CheckedContinuation<Void, any Error>, timer: Task<Void, Never>)] = [:]
     var pendingWaitCount: Int { waiters.count }
     private static let names = ["Thor", "Athena", "Kratos", "Storm", "Hercules", "Wonder Woman", "Doom Slayer", "Achilles", "Samus", "Wolverine", "Artemis", "Goku", "Black Panther", "Ares", "Ripley", "Dante", "Hulk", "Perseus", "She-Ra", "Zeus", "Link", "Superman", "Freya", "Spawn", "Captain Marvel", "Odin", "Chun-Li", "Batman", "Hades", "Lara Croft", "Beowulf", "Saitama"]
 
-    init(directory: URL, inMemory: Bool = false) throws {
+    init(directory: URL, inMemory: Bool = false, save: @escaping (ModelContext) throws -> Void = { try $0.save() }) throws {
+        self.saveContext = save
         self.directory = directory
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let configuration = inMemory ? ModelConfiguration(isStoredInMemoryOnly: true) : ModelConfiguration(url: directory.appendingPathComponent("Arena.sqlite"))
@@ -40,15 +43,16 @@ final class ArenaStore {
         sessions = snapshot.sessions
     }
 
-    private func commit(_ next: ArenaSnapshot) throws {
+    private func commit(_ next: ArenaSnapshot, observerControl: Bool = false) throws {
         // ponytail: bounded snapshot rewrites suit a local MVP; normalize rows when large histories make saves slow.
-        guard next.sessions.count <= 200, next.sessions.reduce(0, { $0 + $1.events.count }) <= 100_000, next.receipts.count <= 100_000 else { throw ArenaError.invalid("Local history capacity reached (200 sessions / 100,000 events or operations).") }
+        // Observer controls remain available at the agent history ceiling. Receipts are never evicted: old retries must not execute again.
+        guard observerControl || (next.sessions.count <= 200 && next.sessions.reduce(0, { $0 + $1.events.count }) <= 100_000 && next.receipts.count <= 100_000) else { throw ArenaError.invalid("Local history capacity reached (200 sessions / 100,000 events or operations).") }
         do {
             let payload = try JSONEncoder().encode(next)
-            guard payload.count <= 128 * 1024 * 1024 else { throw ArenaError.invalid("Local history exceeds 128 MiB; start a fresh Arena data directory.") }
+            guard observerControl || payload.count <= 128 * 1024 * 1024 else { throw ArenaError.invalid("Local history exceeds 128 MiB; start a fresh Arena data directory.") }
             if let row = try context.fetch(FetchDescriptor<StoredArena>()).first { row.payload = payload }
             else { context.insert(StoredArena(payload: payload)) }
-            try context.save()
+            try saveContext(context)
         } catch { context.rollback(); throw error }
         let changed = next.sessions.filter { item in snapshot.sessions.first(where: { $0.id == item.id })?.latestCursor != item.latestCursor }.map(\.id)
         snapshot = next
@@ -74,21 +78,25 @@ final class ArenaStore {
         session.events.append(event); session.updatedAt = event.createdAt
         return event
     }
-    func createSession(name: String, brief: String, agentCount: Int, files: [URL] = [], requestID: String? = nil) throws -> String {
-        let key = try requestID.map { receiptKey(scope: "create_session", request: try clean($0, label: "request_id", max: 200)) }
+    func createSession(name: String, brief: String, agentCount: Int, files: [URL] = [], requestID: String? = nil, clientToken: String? = nil) async throws -> String {
+        let key: String?
+        if let requestID {
+            guard let clientToken, snapshot.clientTokens?.contains(clientToken) == true else { throw ArenaError.invalid("Call register_client and retain its private client_token before creating a session.") }
+            key = receiptKey(scope: "create_session:" + clientToken, request: try clean(requestID, label: "request_id", max: 200))
+        } else { key = nil }
         let hash = try fingerprint(tool: "create_session", args: ["name": .string(name), "brief": .string(brief), "agent_count": .int(agentCount), "files": .array(files.map { .string($0.path) })])
-        if let key, let receipt = snapshot.receipts[key] {
-            guard receipt.fingerprint == hash, let id = receipt.result.data.objectValue?["session_id"]?.stringValue else {
-                throw ArenaError.invalid("request_id was already used with different input.")
-            }
-            return id
-        }
+        if let key, let receipt = try replay(key, hash: hash), let id = receipt.data.objectValue?["session_id"]?.stringValue { return id }
         let id = UUID().uuidString
         var session = ArenaSession(id: id, name: try clean(name, label: "Session name", max: 200), brief: try clean(brief, label: "Brief", max: 100_000), status: .waiting, revision: 0, createdAt: .now, updatedAt: .now, participants: try participants(agentCount), events: [], attachments: [])
         guard files.count <= 32 else { throw ArenaError.invalid("At most 32 brief attachments are supported.") }
         let attachmentDirectory = directory.appendingPathComponent("Attachments").appendingPathComponent(id)
         do {
-            for file in files { session.attachments.append(try AttachmentFiles.importFile(file, directory: attachmentDirectory, isBrief: true)) }
+            for file in files { session.attachments.append(try await AttachmentFiles.shared.importFile(file, directory: attachmentDirectory, isBrief: true)) }
+            try Task.checkCancellation()
+            if let key, let receipt = try replay(key, hash: hash), let previousID = receipt.data.objectValue?["session_id"]?.stringValue {
+                try? FileManager.default.removeItem(at: attachmentDirectory)
+                return previousID
+            }
             _ = event(&session, kind: "setup", text: "Session created. Waiting for \(agentCount) agents.")
             var next = snapshot; next.sessions.insert(session, at: 0)
             if let key { next.receipts[key] = MutationReceipt(fingerprint: hash, result: ArenaToolResult(data: .object(["session_id": .string(id)]))) }
@@ -118,20 +126,20 @@ final class ArenaStore {
             next.sessions[i].name = name
             _ = event(&next.sessions[i], kind: "renamed", text: "Session renamed to \(name).")
         }
-        try commit(next)
+        try commit(next, observerControl: true)
     }
     func stopSession(_ id: String) throws {
         let i = try index(id); var next = snapshot
         guard !next.sessions[i].status.isClosed else { throw ArenaError.invalid("Session is already closed.") }
         next.sessions[i].status = .stopped; next.sessions[i].proposal = nil
-        _ = event(&next.sessions[i], kind: "stopped", text: "Observer stopped the session."); try commit(next)
+        _ = event(&next.sessions[i], kind: "stopped", text: "Observer stopped the session."); try commit(next, observerControl: true)
     }
     func reopenSession(_ id: String) throws {
         let i = try index(id); var next = snapshot
         guard next.sessions[i].status.isClosed else { throw ArenaError.invalid("Only closed sessions can be reopened.") }
         next.sessions[i].status = next.sessions[i].participants.allSatisfy { $0.joinedAt != nil } ? .active : .waiting
         next.sessions[i].proposal = nil; next.sessions[i].revision += 1
-        _ = event(&next.sessions[i], kind: "reopened", text: "Observer reopened the session."); try commit(next)
+        _ = event(&next.sessions[i], kind: "reopened", text: "Observer reopened the session."); try commit(next, observerControl: true)
     }
     func attachmentURL(sessionID: String, attachmentID: String) throws -> URL {
         let session = snapshot.sessions[try index(sessionID)]
@@ -163,8 +171,26 @@ final class ArenaStore {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
         return SHA256.hash(data: try encoder.encode(JSONValue.object(["tool": .string(tool), "args": .object(args)]))).map { String(format: "%02x", $0) }.joined()
     }
+    private func replay(_ key: String, hash: String) throws -> ArenaToolResult? {
+        guard let receipt = snapshot.receipts[key] else { return nil }
+        guard receipt.fingerprint == hash else { throw ArenaError.invalid("request_id was already used with different input.") }
+        return receipt.result
+    }
+    private func clientToken(_ args: [String: JSONValue]) throws -> String {
+        let token = try string(args, "client_token", max: 200)
+        guard snapshot.clientTokens?.contains(token) == true else { throw ArenaError.invalid("Invalid client_token; call register_client once and retain its private token across reconnects.") }
+        return token
+    }
     func execute(tool: String, arguments args: [String: JSONValue]) async throws -> ArenaToolResult {
         try Task.checkCancellation()
+        if tool == "register_client" {
+            guard (snapshot.clientTokens?.count ?? 0) < 10_000 else { throw ArenaError.invalid("Client registration capacity reached; reuse your saved client_token.") }
+            let token = Self.secret()
+            var next = snapshot
+            next.clientTokens = (next.clientTokens ?? []).union([token])
+            try commit(next)
+            return ArenaToolResult(data: .object(["client_token": .string(token)]))
+        }
         if tool == "list_sessions" {
             let offset = try integer(args, "offset", default: 0), limit = try integer(args, "limit", default: 20)
             guard offset >= 0, (1...50).contains(limit) else { throw ArenaError.invalid("Invalid offset or limit (1–50).") }
@@ -183,9 +209,9 @@ final class ArenaStore {
         if tool == "create_session" {
             let paths = try strings(args, "attachment_paths")
             guard paths.allSatisfy({ $0.hasPrefix("/") && $0.utf8.count <= 4096 }) else { throw ArenaError.invalid("Attachment paths must be absolute and at most 4096 UTF-8 bytes.") }
-            let id = try createSession(name: string(args, "name", max: 200), brief: string(args, "brief"),
+            let id = try await createSession(name: string(args, "name", max: 200), brief: string(args, "brief"),
                                        agentCount: integer(args, "agent_count", default: 2), files: paths.map { URL(fileURLWithPath: $0) },
-                                       requestID: string(args, "request_id", max: 200))
+                                       requestID: string(args, "request_id", max: 200), clientToken: clientToken(args))
             return ArenaToolResult(data: .object(["session_id": .string(id)]))
         }
         if tool == "join_session" { return try join(args) }
@@ -207,26 +233,16 @@ final class ArenaStore {
             let session = snapshot.sessions[i], id = try string(args, "attachment_id", max: 100)
             guard let attachment = session.attachments.first(where: { $0.id == id }) else { throw ArenaError.invalid("Attachment not found in this session.") }
             let representation = args["representation"] == nil ? (attachment.mimeType.hasPrefix("image/") ? "image" : "text") : try string(args, "representation", max: 20)
-            return try AttachmentFiles.read(attachment, url: attachmentURL(sessionID: session.id, attachmentID: id), representation: representation, page: integer(args, "page", default: 1), offset: integer(args, "offset", default: 0), limit: integer(args, "limit", default: 20_000))
+            return try await AttachmentFiles.shared.read(attachment, url: attachmentURL(sessionID: session.id, attachmentID: id), representation: representation, page: integer(args, "page", default: 1), offset: integer(args, "offset", default: 0), limit: integer(args, "limit", default: 20_000))
         }
         guard ["post_message", "attach_file", "propose_outcome", "confirm_outcome"].contains(tool) else { throw ArenaError.invalid("Unknown tool: \(tool).") }
         let request = try string(args, "request_id", max: 200), key = receiptKey(scope: token, request: request), hash = try fingerprint(tool: tool, args: args)
-        if let receipt = snapshot.receipts[key] {
-            guard receipt.fingerprint == hash else { throw ArenaError.invalid("request_id was already used with different input.") }; return receipt.result
-        }
+        if let result = try replay(key, hash: hash) { return result }
+        if tool == "attach_file" { return try await attach(args, token: token, key: key, hash: hash) }
         var next = snapshot; var session = next.sessions[i]; let participant = session.participants[p]
         guard !session.status.isClosed else { throw ArenaError.invalid("Session is closed; ask an observer to reopen it.") }
-        var copiedURL: URL?
         let data: JSONValue
         switch tool {
-        case "attach_file":
-            guard session.attachments.count < 1_000 else { throw ArenaError.invalid("Session attachment capacity reached (1,000 files).") }
-            let path = try string(args, "path", max: 4_096)
-            guard path.hasPrefix("/") else { throw ArenaError.invalid("Attachment path must be absolute.") }
-            let destination = directory.appendingPathComponent("Attachments").appendingPathComponent(session.id)
-            let attachment = try AttachmentFiles.importFile(URL(fileURLWithPath: path), directory: destination, isBrief: false)
-            copiedURL = destination.appendingPathComponent(attachment.storedName); session.attachments.append(attachment)
-            data = attachment.publicValue
         case "post_message":
             guard session.status == .active else { throw ArenaError.invalid("Wait until every participant has joined before posting.") }
             let attachments = try strings(args, "attachment_ids"), mentions = try strings(args, "mentions")
@@ -246,7 +262,7 @@ final class ArenaStore {
             guard let outcome = SessionStatus(rawValue: raw), outcome == .consensus || outcome == .impasse else { throw ArenaError.invalid("outcome must be consensus or impasse.") }
             session.proposal = OutcomeProposal(id: UUID().uuidString, outcome: outcome, assessment: try string(args, "assessment"), revision: revision, confirmations: [])
             _ = event(&session, kind: "proposed", text: "Proposed \(outcome.title): \(session.proposal!.assessment)", participant: participant.id)
-            data = try JSONValue.encode(session.proposal!)
+            data = .object(["id": .string(session.proposal!.id), "outcome": .string(outcome.rawValue), "revision": .int(revision)])
         default:
             let proposalID = try string(args, "proposal_id", max: 100)
             guard var proposal = session.proposal, proposal.id == proposalID, proposal.revision == session.revision else { throw ArenaError.invalid("Stale assessment; read the session again.") }
@@ -259,11 +275,35 @@ final class ArenaStore {
                 session.status = proposal.outcome
                 _ = event(&session, kind: "closed", text: "All participants confirmed \(proposal.outcome.title).")
             }
-            data = try session.publicValue(participant: participant)
+            data = .object(["id": .string(session.id), "proposal_id": .string(proposal.id), "status": .string(session.status.rawValue), "revision": .int(session.revision), "confirmations": .array(proposal.confirmations.map(JSONValue.string))])
         }
         let result = ArenaToolResult(data: data)
         next.sessions[i] = session; next.receipts[key] = MutationReceipt(fingerprint: hash, result: result)
-        do { try commit(next) } catch { if let copiedURL { try? FileManager.default.removeItem(at: copiedURL) }; throw error }
+        try commit(next)
+        return result
+    }
+    private func attach(_ args: [String: JSONValue], token: String, key: String, hash: String) async throws -> ArenaToolResult {
+        let (initialIndex, _) = try identity(token)
+        let initial = snapshot.sessions[initialIndex]
+        guard !initial.status.isClosed, initial.attachments.count < 1_000 else { throw ArenaError.invalid("Session is closed or attachment capacity reached (1,000 files).") }
+        let path = try string(args, "path", max: 4_096)
+        guard path.hasPrefix("/") else { throw ArenaError.invalid("Attachment path must be absolute.") }
+        let destination = directory.appendingPathComponent("Attachments").appendingPathComponent(initial.id)
+        let attachment = try await AttachmentFiles.shared.importFile(URL(fileURLWithPath: path), directory: destination, isBrief: false)
+        var saved = false
+        defer { if !saved { try? FileManager.default.removeItem(at: destination.appendingPathComponent(attachment.storedName)) } }
+        try Task.checkCancellation()
+        // The worker suspended this actor: recheck receipt, identity, and lifecycle against fresh state before committing.
+        if let result = try replay(key, hash: hash) { return result }
+        let (i, p) = try identity(token)
+        var next = snapshot
+        guard !next.sessions[i].status.isClosed, next.sessions[i].attachments.count < 1_000 else { throw ArenaError.invalid("Session is closed or attachment capacity reached (1,000 files).") }
+        next.sessions[i].attachments.append(attachment)
+        _ = event(&next.sessions[i], kind: "attached", text: "Added attachment: " + attachment.name, participant: next.sessions[i].participants[p].id, attachments: [attachment.id])
+        let result = ArenaToolResult(data: attachment.publicValue)
+        next.receipts[key] = MutationReceipt(fingerprint: hash, result: result)
+        try commit(next)
+        saved = true
         return result
     }
     private func join(_ args: [String: JSONValue]) throws -> ArenaToolResult {
@@ -271,7 +311,8 @@ final class ArenaStore {
         let sessionID = try args["session_id"].map { _ in try string(args, "session_id", max: 100) }
         guard (invitation == nil) != (sessionID == nil) else { throw ArenaError.invalid("Supply exactly one of invitation or session_id.") }
         let request = try string(args, "request_id", max: 200)
-        let key = receiptKey(scope: invitation ?? "session:\(sessionID!)", request: request), hash = try fingerprint(tool: "join_session", args: args)
+        let scope = try invitation ?? ("join_session:" + clientToken(args))
+        let key = receiptKey(scope: scope, request: request), hash = try fingerprint(tool: "join_session", args: args)
         if let receipt = snapshot.receipts[key] {
             guard receipt.fingerprint == hash else { throw ArenaError.invalid("request_id was already used with different input.") }; return receipt.result
         }

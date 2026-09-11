@@ -51,3 +51,7 @@ _Avoid_: Completed, disconnected
 **Reopening**:
 An observer's decision to resume a closed discussion while preserving its history and participant identities.
 _Avoid_: Reset, new session
+
+**Client credential**:
+A private server-issued token an independent agent retains for session creation and session-ID join retries. It persists across MCP transport reconnections; a participant credential identifies the joined session slot.
+_Avoid_: HTTP session ID, model identity

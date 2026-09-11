@@ -106,7 +106,7 @@ final class TransportTests: XCTestCase {
 
     func testConcurrentClientsCanReuseRequestIDsAndRouteStructuredTools() async throws {
         let store = try makeStore()
-        _ = try store.createSession(name: "Transport review", brief: "Critique a proposal", agentCount: 2)
+        _ = try await store.createSession(name: "Transport review", brief: "Critique a proposal", agentCount: 2)
         let invitations = store.sessions[0].participants.map(\.invitation)
         let router = MCPHTTPRouter(store: store, port: port, token: token)
         let first = try await initialize(router)
@@ -128,7 +128,7 @@ final class TransportTests: XCTestCase {
 
         let list = await router.handle(try request(session: first, body: ["jsonrpc": "2.0", "id": 3, "method": "tools/list"]))
         let listJSON = try await consume(list, router: router)
-        XCTAssertEqual(listJSON?["result"]?.objectValue?["tools"]?.arrayValue?.count, 10)
+        XCTAssertEqual(listJSON?["result"]?.objectValue?["tools"]?.arrayValue?.count, 11)
         let bad = await router.handle(try request(session: first, body: ["jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": ["name": "read_session", "arguments": ["participant_token": "invalid"]]]))
         let badJSON = try await consume(bad, router: router)
         XCTAssertEqual(badJSON?["result"]?.objectValue?["isError"], .bool(true))
@@ -137,7 +137,7 @@ final class TransportTests: XCTestCase {
 
     func testCancellationReleasesWaitingStreamAndSession() async throws {
         let store = try makeStore()
-        _ = try store.createSession(name: "Wait review", brief: "Review", agentCount: 2)
+        _ = try await store.createSession(name: "Wait review", brief: "Review", agentCount: 2)
         let invitation = store.sessions[0].participants[0].invitation
         let joined = try await store.execute(tool: "join_session", arguments: ["invitation": .string(invitation), "request_id": .string("join"), "client": .string("test"), "model": .string("test")])
         let participant = try XCTUnwrap(joined.data.objectValue?["participant_token"]?.stringValue)
@@ -182,7 +182,7 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(duplicate.response.statusCode, 409)
         await router.disconnected(sessionID: session, streamKey: try XCTUnwrap(old.streamKey), leaseID: try XCTUnwrap(old.leaseID))
         let result = try await consume(current, router: router)
-        XCTAssertEqual(result?["result"]?.objectValue?["tools"]?.arrayValue?.count, 10)
+        XCTAssertEqual(result?["result"]?.objectValue?["tools"]?.arrayValue?.count, 11)
         let unknownCancel = await router.handle(try request(session: session, body: ["jsonrpc": "2.0", "method": "notifications/cancelled", "params": ["requestId": 999]]))
         XCTAssertEqual(unknownCancel.response.statusCode, 202)
         let next = await router.handle(listing)
@@ -193,7 +193,7 @@ final class TransportTests: XCTestCase {
 
     func testReplayBudgetBlocksNewWorkWhileWaitDrainsThenRotates() async throws {
         let store = try makeStore()
-        _ = try store.createSession(name: "Bounded replay", brief: "Review", agentCount: 2)
+        _ = try await store.createSession(name: "Bounded replay", brief: "Review", agentCount: 2)
         let joined = try await store.execute(tool: "join_session", arguments: ["invitation": .string(store.sessions[0].participants[0].invitation), "request_id": .string("join"), "client": .string("test"), "model": .string("test")])
         let participant = try XCTUnwrap(joined.data.objectValue?["participant_token"]?.stringValue)
         let router = MCPHTTPRouter(store: store, port: port, token: token, replayBudget: 2048)

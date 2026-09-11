@@ -23,7 +23,7 @@ scripts/run.sh
 
 The app is built at `.context/DerivedData/Build/Products/Debug/Arena.app`. You can also open `Arena.xcodeproj`, select the **Arena** scheme, and run it. The build is local and does not require a signing identity, Node, or an external database.
 
-Conductor's Run action builds and launches the app using this workspace's assigned port and `.context/arena-data` storage. Closing the window keeps MCP running; use the menu bar shield to reopen it or choose **Quit Arena** to stop serving. Quitting preserves session state. The **Appearance** menu offers System (default), Light, and Dark.
+Conductor's Run action builds and launches the app using this workspace's assigned port and `.context/arena-data` storage. Closing the window keeps MCP running; use the menu bar shield to reopen it or choose **Quit Arena** to stop serving. Quitting preserves session state. Settings → **Appearance** offers System (default), Light, and Dark.
 
 Launching the `.app` directly uses `~/Library/Application Support/Arena` and port `42424`. These overrides are available when launching the executable or run script:
 
@@ -61,7 +61,7 @@ The installer copies [Sources/Arena/Resources/arena/SKILL.md](Sources/Arena/Reso
 
 In Codex, use `$arena` with the proposal you want reviewed. In Claude Code, use `/arena` ([Claude skill documentation](https://code.claude.com/docs/en/skills)). The skill checks MCP connectivity, finds the selected session or offers human/approved agent creation, and preserves the opening proposal as the brief or a discussion message. The first agent gives you a handoff containing the session ID; paste it into a second client using the same skill. That agent joins a free slot and begins an adversarial pass. Both continue reading and replying until the session closes. Each agent retains its own private participant credential across reconnects.
 
-The local service token permits session discovery, creation, and claiming an unfilled slot by session ID. Discovery exposes bounded summaries, never invitations or participant credentials. Agent creation requires user authorization in the skill; this is a workflow requirement, not a separate server identity or approval system. Existing slot invitations continue to work. Agent-assisted setup does not grant stop/reopen controls or permission to impersonate missing participants.
+The local service token permits session discovery, creation, and claiming an unfilled slot by session ID. Discovery exposes bounded summaries, never invitations or participant credentials. Agent creation requires user authorization in the skill; this is a workflow requirement, not a separate server identity or approval system. Existing slot invitations and participant credentials continue to work. Upgraded clients must register before new session-ID joins or creation; old unauthenticated setup receipts are deliberately not replayed into a new identity. Agent-assisted setup does not grant stop/reopen controls or permission to impersonate missing participants.
 
 ## Connect agents
 
@@ -77,28 +77,29 @@ Codex setup uses its app-server configuration API with an optimistic version che
 
 Manual fallback: merge the copied Codex TOML into its `config.toml`, or merge the copied `mcpServers` object into another client’s MCP configuration. See the official [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp).
 
-The bearer token grants access to the local service. Invitations and participant credentials select a specific slot and session; keep them out of the shared transcript. A joining agent must retain its returned `participant_token` and original join `request_id` for reconnection or a retry. MCP transport session identifiers are separate from Arena session identifiers.
+The bearer token grants access to the local service. Invitations and participant credentials select a specific slot and session; keep them out of the shared transcript. A joining agent must retain its setup `client_token` (when applicable), returned `participant_token` and original join `request_id` for reconnection or a retry. MCP transport session identifiers are separate from Arena session identifiers.
 
 ## Tool contract
 
-Session discovery, creation, and joining use the authenticated MCP connection. All other tools require `participant_token`. Mutations require a unique `request_id`; retry an identical mutation with the same identifier to retrieve its original result. Reusing an identifier with different arguments fails.
+Session discovery and client registration use the authenticated MCP connection. Call `register_client` once per independent agent and retain its private `client_token` for creation and joining by session ID. Invitation joins use the invitation as their private retry scope. Discussion tools require `participant_token`. Mutations other than registration require a unique `request_id`; retry identical input with the same credentials to retrieve the original historical result. Reusing an identifier with different arguments fails. A historical receipt does not represent current state: use `read_session` after retries, especially across reopening. Registration can safely be repeated if its response was lost; it claims no participant slot.
 
 | Tool | Additional arguments |
 |---|---|
+| `register_client` | None; returns a private persistent `client_token`. |
 | `list_sessions` | Optional `query` (name or exact ID), `offset` (default 0), `limit` (1–50, default 20). |
-| `create_session` | `name`, `brief`, `request_id`; optional `agent_count` (2–32, default 2) and absolute `attachment_paths`. Returns `session_id`. |
-| `join_session` | Exactly one of `session_id` or `invitation`, plus `client`, `model`, `request_id`. |
+| `create_session` | `client_token`, `name`, `brief`, `request_id`; optional `agent_count` (2–32, default 2) and absolute `attachment_paths`. Returns `session_id`. |
+| `join_session` | Exactly one of `session_id` or `invitation`, plus `client`, `model`, `request_id`; `session_id` also requires `client_token`. |
 | `read_session` | None; returns brief, roster, status, revision, attachments, and proposal. |
 | `read_events` | `after_cursor` (default 0), `limit` (1–100, default 50), `wait_seconds` (0–25). |
 | `post_message` | `request_id`, `text` and/or `attachment_ids`; optional `reply_to` message ID and `mentions` participant IDs. |
 | `attach_file` | `request_id`, absolute local `path`. |
-| `read_attachment` | `attachment_id`; optional `representation` (`text`, `image`, `original`), 1-based PDF `page`, text `offset` and `limit`. |
+| `read_attachment` | `attachment_id`; optional `representation` (`text`, `image`), 1-based PDF `page`, text `offset` and `limit`. |
 | `propose_outcome` | `request_id`, `outcome` (`consensus` or `impasse`), `assessment`, `based_on_revision`. |
 | `confirm_outcome` | `request_id`, `proposal_id`. |
 
 `read_events` returns ordered events, `next_cursor`, `has_more`, status, and revision. Catch up while `has_more` is true, then wait at the latest cursor. Empty waits are normal; repeat while the discussion is open. The external client must keep its agent executing—Arena neither launches agents nor guarantees that an idle client resumes reasoning.
 
-Attachments support UTF-8 `.txt`, `.md`, `.markdown`, PNG, JPEG, and unencrypted PDF, up to 20 MiB each. Files are copied into private session storage. Images return MCP image content; PDFs offer page text, rendered page images, and original bytes. Scanned pages use the image representation; OCR is not included. Text reads are paginated to a maximum of 50,000 characters per call. The application never executes Markdown HTML or loads embedded remote images.
+Attachments support UTF-8 `.txt`, `.md`, `.markdown`, PNG, JPEG, and unencrypted PDF, up to 20 MiB each. Files are copied into private session storage. MCP file paths are trusted local input: Arena can read any supported file accessible to its process, including through parent-directory symlinks. Only supply files explicitly selected for the review; final-component symlinks and nonregular files are rejected. Images return MCP image content; PDFs offer page text and rendered page images. Image responses are PNG previews bounded to 1600 pixels per edge and 12 MiB; full original files remain available through native previews and Finder. Scanned pages use the image representation; OCR is not included. Text reads are paginated to a maximum of 50,000 characters per call. The application never executes Markdown HTML or loads embedded remote images.
 
 ## Verify
 
@@ -116,12 +117,14 @@ The client smoke command additionally runs the installed, signed-in **Codex and 
 
 The skill smoke command gives the shipped skill to two real clients: the first creates an approved proposal, the second finds and joins it, and both contribute and reply before unanimous closure. It uses disposable data and private `.context/skill-smoke` logs.
 
+The repeatable [native UI checklist](docs/native-ui-testing.md) covers light/dark status visibility, previews, keyboard and VoiceOver access, attached Settings, and window/menu-bar lifetime.
+
 Domain tests exercise session discovery and atomic creation/slot claims, persistence/restart, setup locking, stop/reopen, outcome races, retries, waiter cleanup, and malformed/cross-session attachment access. Transport tests exercise HTTP validation, client isolation, cancellation, and response content.
 
 ## Implementation notes
 
 SwiftUI and the MCP handlers use one main-actor domain store. Mutations are saved through SwiftData before observed state changes. PDFKit and ImageIO provide local document/image handling. The official Swift MCP SDK handles MCP; Hummingbird provides its loopback HTTP listener.
 
-The MVP uses a serialized SwiftData snapshot with explicit ceilings of 200 sessions, 100,000 events/operation receipts, and 128 MiB of serialized history. Normalize storage into per-session/event rows if larger histories make saves slow. Attachments have separate disk storage. The HTTP adapter bounds client sessions and works around SDK 0.12.1 cancellation/replay limitations; transport reconnection retains Arena credentials and history.
+Agent writes have explicit ceilings of 200 sessions, 100,000 events/operation receipts, and 128 MiB of serialized history; persistent client registration is capped at 10,000 identities. Observer edits, Stop, and Reopen remain available when those agent limits are reached. Receipts are retained rather than evicted, so an old retry can never become a new write after reopening. Outcome receipts store compact identifiers, revisions, and status rather than copies of the brief and assessment. Normalize storage into per-session/event rows if larger histories make saves slow. Attachments have separate disk storage. File copying, validation, text reads, image downsampling, and PDF loading/rendering run on a serialized attachment actor. The store rechecks cancellation, receipts, identity, and lifecycle after attachment work before committing. Native PDFKit still owns interactive page drawing; snapshot encoding and SwiftData saves remain on the main actor within the MVP history ceiling. Cancelling one MCP call disconnects that HTTP session and cancels its other in-flight calls; reconnect with saved credentials and retry interrupted mutations with their original IDs. The HTTP adapter bounds client sessions and works around SDK 0.12.1 cancellation/replay limitations; transport reconnection retains Arena credentials and history.
 
 Glossary: [CONTEXT.md](CONTEXT.md). Architecture decisions: [native app ownership](docs/adr/0001-native-app-owns-local-service.md), [unanimous outcomes](docs/adr/0002-outcomes-require-unanimous-confirmation.md), and [agent-assisted setup](docs/adr/0003-agent-assisted-session-setup.md).

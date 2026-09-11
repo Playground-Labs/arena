@@ -151,16 +151,24 @@ def run():
     with FixtureServer() as server:
         fixture = server.fixture
         first, second = MCPClient(fixture), MCPClient(fixture)
-        created, _ = first.call('create_session', {'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
-        duplicate, _ = first.call('create_session', {'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
+        first_identity = first.call('register_client', {})[0]['client_token']
+        second_identity = second.call('register_client', {})[0]['client_token']
+        created, _ = first.call('create_session', {'client_token': first_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
+        duplicate, _ = first.call('create_session', {'client_token': first_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
         assert created == duplicate
+        independent, _ = second.call('create_session', {'client_token': second_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
+        assert independent['session_id'] != created['session_id']
+        first.call('create_session', {'name': 'Missing identity', 'brief': 'Review', 'request_id': 'bad'}, error=True)
         discovered, _ = second.call('list_sessions', {'query': created['session_id']})
         assert len(discovered['sessions']) == 1 and discovered['sessions'][0]['joined_count'] == 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            claims = [executor.submit(client.call, 'join_session', {'session_id': created['session_id'], 'request_id': label, 'client': label, 'model': 'test'}) for client, label in [(first, 'skill-first'), (second, 'skill-second')]]
+            claims = [executor.submit(client.call, 'join_session', {'client_token': identity, 'session_id': created['session_id'], 'request_id': 'same-request', 'client': 'same-client', 'model': 'test'}) for client, identity in [(first, first_identity), (second, second_identity)]]
             joined_slots = [claim.result()[0] for claim in claims]
         assert len({slot['participant_token'] for slot in joined_slots}) == 2
         assert any(slot['status'] == 'active' for slot in joined_slots)
+        reconnected = MCPClient(fixture)
+        replay, _ = reconnected.call('join_session', {'client_token': first_identity, 'session_id': created['session_id'], 'request_id': 'same-request', 'client': 'same-client', 'model': 'test'})
+        assert replay['participant_token'] == joined_slots[0]['participant_token']
         slots = fixture['sessions'][0]['invitations']
         first.join(slots[0], 'alpha')
         joined = second.join(slots[1], 'beta')
@@ -168,7 +176,7 @@ def run():
         names = [p['name'] for p in joined['participants']]
         assert len(set(names)) == 2
         tools = first.rpc('tools/list', {})['result']['tools']
-        assert len(tools) == 10, tools
+        assert len(tools) == 11, tools
         first.call('read_session', {'participant_token': 'invalid'}, error=True)
         try:
             urllib.request.urlopen(urllib.request.Request(fixture['endpoint'], b'{}', {'Content-Type': 'application/json'}))
@@ -205,6 +213,7 @@ def run():
         assert 'Amber compass' in pdf['text'], pdf
         _, page = second.call('read_attachment', dict(participant_token=second.participant_token, attachment_id=attachment_ids['review.pdf'], representation='image', page=1))
         assert any(x['type'] == 'image' for x in page)
+        first.call('read_attachment', dict(participant_token=first.participant_token, attachment_id=attachment_ids['review.pdf'], representation='original'), error=True)
         upload = first.agent('attach_file', request_id='upload', path=fixture['files'][0])
         assert first.agent('attach_file', request_id='upload', path=fixture['files'][0]) == upload
         first.agent('post_message', request_id='attachment-message', text='Evidence attached.', attachment_ids=[upload['id']])
@@ -231,6 +240,9 @@ def run():
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             posts = list(executor.map(lambda pair: pair[1].agent('post_message', request_id='peer-message', text='Perspective ' + str(pair[0])), enumerate(clients)))
         assert len({post['id'] for post in posts}) == 3
+        shared = clients[0].agent('attach_file', request_id='shared-source', path=fixture['files'][0])
+        for client in clients:
+            assert 'cobalt lantern' in client.agent('read_attachment', attachment_id=shared['id'])['text']
         state = clients[0].agent('read_session')
         proposal = clients[0].agent('propose_outcome', request_id='impasse', outcome='impasse', assessment='The peers disagree on the latency budget.', based_on_revision=state['revision'])
         for index, client in enumerate(clients):

@@ -27,12 +27,21 @@ final class ArenaRuntime {
             let configuration = try ArenaConfiguration.load()
             self.configuration = configuration
             let store = try ArenaStore(directory: configuration.directory)
-            try prepareSmokeFixture(store: store, configuration: configuration)
             self.store = store
             let service = MCPService(store: store, port: configuration.port, token: configuration.token)
             self.clientSetup = ClientSetup(directory: configuration.directory, endpoint: service.endpoint, token: configuration.token)
             self.service = service
-            service.start()
+            Task {
+                do {
+                    try await prepareSmokeFixture(store: store, configuration: configuration)
+                    guard !isQuitting else { return }
+                    service.start()
+                } catch {
+                    startupError = error.localizedDescription
+                    self.store = nil
+                    FileHandle.standardError.write(Data("Arena fixture failed: \(error.localizedDescription)\n".utf8))
+                }
+            }
         } catch {
             startupError = error.localizedDescription
             FileHandle.standardError.write(Data("Arena startup failed: \(error.localizedDescription)\n".utf8))

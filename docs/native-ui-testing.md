@@ -1,0 +1,24 @@
+# Native UI verification
+
+Build with `scripts/build.sh`, launch with `scripts/run.sh`, and use disposable review sessions. Paper's Compact light/dark artboards are the layout reference. Keep screenshots free of invitations and credentials.
+
+- [ ] In Settings, select Light, Dark, and System. Confirm immediate changes, readable status badges, and persistence after relaunch.
+- [ ] Show Waiting, Active, Consensus, Impasse, and Stopped sessions. Every sidebar badge must have its status text and distinct icon; dividers reach the window's top and bottom.
+- [ ] Use the session-list arrow keys, ⌘N, ⌥⌘I, and ⌘,. Tab through controls with keyboard navigation enabled. Focus should be visible for keyboard use; pointer clicks should not leave a blue outline.
+- [ ] Hover the sidebar, toolbar, attachment, and Settings buttons. Check hover and pressed feedback in both appearances.
+- [ ] Open a text/Markdown file, PNG/JPEG, text PDF, and scanned PDF. Preview loading must leave the rest of the UI responsive. Text remains selectable; remote Markdown images and HTML do not execute/load.
+- [ ] While a proposal has one confirmation, inspect VoiceOver's accessibility tree: each agent reads “Confirmed” or “Pending confirmation.” Aggregate confirmation count and status are also present.
+- [ ] Open details and verify “AGENTS” and the unanimity explanation. Self-reported client/model labels and copy-invitation controls remain accessible.
+- [ ] Open Settings and click the parent window. Settings stays attached. Escape dismisses it; ⌘, opens it again.
+- [ ] Close the main window while an MCP client waits. It continues serving; the shield menu → Open Arena restores the window.
+- [ ] Quit through the shield menu. Clients disconnect without sessions becoming Stopped. Relaunch preserves identities, outcomes, and cursor history.
+
+Record the build, date, checked cases, and any unavailable checks in the PR validation. Accessibility-tree inspection verifies labels; it does not replace an audible VoiceOver walkthrough.
+
+## Review-fix run — 2026-09-10
+
+`swift test -j 4` passed all 30 tests; the Xcode app build, HTTP smoke test, real Codex/Claude Code attachment-and-closure test, and real Arena skill workflow all passed. Gitignored logs are `.context/review-{tests,build,http-smoke,client-smoke,skill-smoke}.log`.
+
+Native screenshots and accessibility-tree checks verified Light/System-dark appearance, Active/Waiting/Consensus badges, full-height dividers, explicit confirmed/pending labels on a three-agent assessment, “AGENTS” details copy, and Markdown/image/PDF previews. ⌘, opened attached Settings, Escape dismissed it, ⌥⌘I toggled details, and both installed skills matched the updated bundle. A real MCP read/wait completed after closing the window; quitting left the fixture discussion Active. System appearance and the normal workspace data/port were restored afterward.
+
+The Paper Compact light/dark status icons and details wording were updated and visually checked. This pass did not repeat an audible VoiceOver walkthrough, every keyboard/hover interaction, or native scanned-PDF navigation; those remain explicit checklist items rather than inferred passes. Automated tests cover scanned-PDF page rendering and image response bounds.

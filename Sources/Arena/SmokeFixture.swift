@@ -4,7 +4,7 @@ import PDFKit
 
 /// Explicit opt-in fixture for repeatable integration checks; never runs in normal launches.
 @MainActor
-func prepareSmokeFixture(store: ArenaStore, configuration: ArenaConfiguration) throws {
+func prepareSmokeFixture(store: ArenaStore, configuration: ArenaConfiguration) async throws {
     guard let path = configuration.fixturePath else { return }
     let destination = URL(fileURLWithPath: path)
     let folder = destination.deletingLastPathComponent()
@@ -30,9 +30,9 @@ func prepareSmokeFixture(store: ArenaStore, configuration: ArenaConfiguration) t
     view.font = .systemFont(ofSize: 22)
     try view.dataWithPDF(inside: view.bounds).write(to: pdfURL)
     let files = [textURL, imageURL, pdfURL]
-    let two = try store.createSession(name: "The polling question", brief: "Review bounded waiting for an agent conversation. Discuss tradeoffs as peers, then agree on a closing assessment or an impasse.", agentCount: 2, files: files)
-    let three = try store.createSession(name: "Three perspectives", brief: "Review a local-first proposal as three peers.", agentCount: 3)
-    let isolated = try store.createSession(name: "Separate session", brief: "Cross-session access must remain isolated.", agentCount: 2)
+    let two = try await store.createSession(name: "The polling question", brief: "Review bounded waiting for an agent conversation. Discuss tradeoffs as peers, then agree on a closing assessment or an impasse.", agentCount: 2, files: files)
+    let three = try await store.createSession(name: "Three perspectives", brief: "Review a local-first proposal as three peers.", agentCount: 3)
+    let isolated = try await store.createSession(name: "Separate session", brief: "Cross-session access must remain isolated.", agentCount: 2)
     let sessions = [two, three, isolated].compactMap { id in store.sessions.first { $0.id == id } }
     let object: [String: Any] = [
         "endpoint": "http://127.0.0.1:\(configuration.port)/mcp",

@@ -4,19 +4,19 @@ import Foundation
 import ImageIO
 import PDFKit
 
-@MainActor
-enum AttachmentFiles {
+actor AttachmentFiles {
+    static let shared = AttachmentFiles()
     static let maximumBytes = 20 * 1024 * 1024
-    static func importFile(_ source: URL, directory: URL, isBrief: Bool) throws -> Attachment {
+    func importFile(_ source: URL, directory: URL, isBrief: Bool) throws -> Attachment {
         let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard descriptor >= 0 else { throw ArenaError.invalid("Cannot open attachment; symbolic links are not accepted.") }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
         var info = stat()
         guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { throw ArenaError.invalid("Attachment must be a regular file.") }
-        guard info.st_size > 0, info.st_size <= maximumBytes else { throw ArenaError.invalid("Attachments must be nonempty and at most 20 MiB.") }
-        let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
-        guard !data.isEmpty, data.count <= maximumBytes else { throw ArenaError.invalid("Attachment exceeds 20 MiB.") }
+        guard info.st_size > 0, info.st_size <= Self.maximumBytes else { throw ArenaError.invalid("Attachments must be nonempty and at most 20 MiB.") }
+        let data = try handle.read(upToCount: Self.maximumBytes + 1) ?? Data()
+        guard !data.isEmpty, data.count <= Self.maximumBytes else { throw ArenaError.invalid("Attachment exceeds 20 MiB.") }
         let ext = source.pathExtension.lowercased()
         let mime: String
         switch ext {
@@ -55,33 +55,59 @@ enum AttachmentFiles {
         return Attachment(id: id, name: source.lastPathComponent, mimeType: mime, storedName: name, byteCount: data.count, isBrief: isBrief)
     }
 
-    static func read(_ attachment: Attachment, url: URL, representation: String, page: Int, offset: Int, limit: Int) throws -> ArenaToolResult {
-        guard ["text", "image", "original"].contains(representation), offset >= 0, limit > 0, limit <= 50_000 else { throw ArenaError.invalid("Invalid attachment representation, offset, or limit.") }
+    private func pngData(_ image: CGImage) throws -> Data {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { throw ArenaError.invalid("Cannot encode image.") }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination), data.length <= 12 * 1024 * 1024 else { throw ArenaError.invalid("Rendered image exceeds response capacity.") }
+        return data as Data
+    }
+
+    func previewText(url: URL) throws -> (text: String, truncated: Bool) {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: 200_001) ?? Data()
+        return (String(decoding: data.prefix(200_000), as: UTF8.self), data.count > 200_000)
+    }
+
+    func previewPDF(url: URL) throws -> sending PDFDocument {
+        guard let document = PDFDocument(url: url) else { throw CocoaError(.fileReadCorruptFile) }
+        return document
+    }
+
+    func read(_ attachment: Attachment, url: URL, representation: String, page: Int, offset: Int, limit: Int) throws -> ArenaToolResult {
+        guard ["text", "image"].contains(representation), offset >= 0, limit > 0, limit <= 50_000 else { throw ArenaError.invalid("Invalid attachment representation, offset, or limit.") }
         let data = try Data(contentsOf: url)
         var metadata = attachment.publicValue.objectValue ?? [:]
         if attachment.mimeType.hasPrefix("image/") {
-            guard representation != "text" else { throw ArenaError.invalid("Use image or original for image attachments.") }
-            return ArenaToolResult(data: .object(metadata), images: [ToolImage(data: data, mimeType: attachment.mimeType)])
+            guard representation != "text" else { throw ArenaError.invalid("Use image for image attachments.") }
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 1600, kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary) else { throw ArenaError.invalid("Cannot render image.") }
+            let png = try pngData(image)
+            return ArenaToolResult(data: .object(metadata), images: [ToolImage(data: png, mimeType: "image/png")])
         }
         let text: String
         if attachment.mimeType == "application/pdf" {
             guard let pdf = PDFDocument(data: data), page >= 1, page <= pdf.pageCount, let pdfPage = pdf.page(at: page - 1) else { throw ArenaError.invalid("PDF page is out of range.") }
             metadata["page"] = .int(page); metadata["page_count"] = .int(pdf.pageCount)
-            if representation == "original" {
-                metadata["base64"] = .string(data.base64EncodedString())
-                return ArenaToolResult(data: .object(metadata))
-            }
             if representation == "image" {
                 let bounds = pdfPage.bounds(for: .mediaBox)
                 guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { throw ArenaError.invalid("Invalid PDF page dimensions.") }
                 let scale = min(1600 / bounds.width, 1600 / bounds.height, 2)
-                let thumbnail = pdfPage.thumbnail(of: NSSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale)), for: .mediaBox)
-                guard let tiff = thumbnail.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) else { throw ArenaError.invalid("Cannot render PDF page.") }
+                let width = max(1, Int(bounds.width * scale)), height = max(1, Int(bounds.height * scale))
+                guard let pageRef = pdfPage.pageRef,
+                      let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw ArenaError.invalid("Cannot render PDF page.") }
+                context.setFillColor(CGColor(gray: 1, alpha: 1))
+                context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+                context.concatenate(pageRef.getDrawingTransform(.mediaBox, rect: CGRect(x: 0, y: 0, width: width, height: height), rotate: 0, preserveAspectRatio: true))
+                context.drawPDFPage(pageRef)
+                guard let image = context.makeImage() else { throw ArenaError.invalid("Cannot render PDF page.") }
+                let png = try pngData(image)
                 return ArenaToolResult(data: .object(metadata), images: [ToolImage(data: png, mimeType: "image/png")])
             }
             text = pdfPage.string ?? ""
         } else {
-            guard representation != "image", let decoded = String(data: data, encoding: .utf8) else { throw ArenaError.invalid("Use text or original for text attachments.") }
+            guard representation != "image", let decoded = String(data: data, encoding: .utf8) else { throw ArenaError.invalid("Use text for text attachments.") }
             text = decoded
         }
         let count = text.count

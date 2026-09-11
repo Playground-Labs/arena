@@ -37,7 +37,7 @@ struct ArenaView: View {
         }
         .sheet(isPresented: $showingNewSession) {
             SessionEditor(session: nil) { name, brief, count, files in
-                selection = try store.createSession(name: name, brief: brief, agentCount: count, files: files)
+                selection = try await store.createSession(name: name, brief: brief, agentCount: count, files: files)
                 showingDetails = true
             }
         }
@@ -263,12 +263,8 @@ struct StatusBadge: View {
     var body: some View {
         HStack(spacing: compact ? 5 : 6) {
             Group {
-                if compact && status != .consensus {
-                    Circle().frame(width: 3, height: 3)
-                } else {
-                    Image(systemName: status.symbol)
-                        .font(.system(size: compact ? 10 : 12, weight: .semibold))
-                }
+                Image(systemName: status.symbol)
+                    .font(.system(size: compact ? 10 : 12, weight: .semibold))
             }.frame(width: compact ? 10 : nil, height: compact ? 12 : nil)
             Text(status.title)
         }
@@ -331,13 +327,14 @@ struct FighterAvatar: View {
 
 struct SessionEditor: View {
     let session: ArenaSession?
-    let save: (String, String, Int, [URL]) throws -> Void
+    let save: (String, String, Int, [URL]) async throws -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var brief = ""
     @State private var count = 2
     @State private var files: [URL] = []
     @State private var importing = false
+    @State private var saving = false
     @State private var error: String?
     private var setupEditable: Bool { session?.participants.allSatisfy { $0.joinedAt == nil } ?? true }
 
@@ -382,13 +379,17 @@ struct SessionEditor: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).modifier(ArenaHoverFeedback())
                 Button(session == nil ? "Create Session" : "Save Changes") {
-                    do { try save(name, brief, count, files); dismiss() } catch { self.error = error.localizedDescription }
+                    saving = true
+                    Task {
+                        defer { saving = false }
+                        do { try await save(name, brief, count, files); dismiss() } catch { self.error = error.localizedDescription }
+                    }
                 }
                 .buttonStyle(.borderedProminent).modifier(ArenaHoverFeedback(accent: true)).keyboardShortcut(.defaultAction)
                 .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(28).frame(width: 550)
+        .padding(28).frame(width: 550).disabled(saving).interactiveDismissDisabled(saving)
         .onAppear { if let session { name = session.name; brief = session.brief; count = session.participants.count } }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .png, .jpeg, .pdf], allowsMultipleSelection: true) { result in
             do { files = Array(Set(files + (try result.get()))).sorted { $0.lastPathComponent < $1.lastPathComponent } }
