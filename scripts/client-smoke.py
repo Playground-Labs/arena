@@ -23,8 +23,8 @@ def run():
         endpoint_config = 'mcp_servers.arena.url=' + json.dumps(fixture['endpoint'])
         auth_config = 'mcp_servers.arena.bearer_token_env_var="ARENA_SMOKE_TOKEN"'
         common = '''This is an authorized integration test of the Arena MCP server, not a request to implement software. Use only the arena MCP tools. Do not use shell, file tools, web, or subagents. Keep the review short and deterministic.
-1. Join with invitation INVITE, request_id LABEL-join, client LABEL, model your actual model identifier if known or "unknown (client default)".
-2. Retain your private participant_token. Read/wait until both slots are joined.
+1. Call register_client, retain client_token, and join with session_id SESSION_ID, client_token, request_id LABEL-join, client LABEL, model your actual model identifier if known or "unknown (client default)".
+2. Retain your private participant_token. Read/wait until both test agents have joined.
 3. Read all three brief attachments THROUGH MCP: Markdown text, PNG as image, PDF as text AND page 1 as image. Inspect the returned visual content. Do not infer image/PDF contents from filenames.
 4. Post exactly one discussion message with request_id LABEL-message. Include the marker LABEL_VERIFIED and quote the short verification phrase you read in the Markdown, the characters visible in the PNG, and the verification phrase in the PDF. Also briefly critique the proposal for bounded waits. Do not post extra discussion messages after this.
 5. Call read_events with a current cursor and wait_seconds:1 at least once. Read/wait until the other agent's message is present. Poll at most 20 times; fail clearly if the other agent is absent.
@@ -47,7 +47,7 @@ ROLE
         handles = {}
         try:
             for index, (label, command) in enumerate(commands.items()):
-                prompt = common.replace('INVITE', fixture['sessions'][0]['invitations'][index]).replace('LABEL', label).replace('ROLE', roles[label])
+                prompt = common.replace('SESSION_ID', fixture['sessions'][0]['id']).replace('LABEL', label).replace('ROLE', roles[label])
                 handles[label] = (logs / (label + '.jsonl')).open('w')
                 os.chmod(logs / (label + '.jsonl'), 0o600)
                 env = dict(os.environ, ARENA_SMOKE_TOKEN=fixture['token'])

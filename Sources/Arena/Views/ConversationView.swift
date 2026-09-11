@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ConversationView: View {
     let session: ArenaSession
+    let accept: (String) -> Void
     let preview: (Attachment) -> Void
 
     var body: some View {
@@ -11,7 +12,7 @@ struct ConversationView: View {
             HStack(spacing: 12) {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(session.participants) { participant in
+                        ForEach(session.joinedParticipants) { participant in
                             let identity = participant.joinedAt == nil ? "Awaiting arrival" : [participant.client, participant.model].compactMap { $0 }.joined(separator: " · ")
                             HStack(spacing: 6) {
                                 Circle().frame(width: 5, height: 5)
@@ -38,7 +39,7 @@ struct ConversationView: View {
                                 Image(systemName: session.status.isClosed ? session.status.symbol : session.status == .waiting ? "person.2.wave.2" : "bubble.left.and.bubble.right")
                                     .font(.system(size: 30, weight: .light)).foregroundStyle(.orange)
                                 Text(session.status.isClosed ? "Discussion \(session.status.title.lowercased())" : session.status == .waiting ? "The arena is ready" : "The floor is open").font(.headline)
-                                Text(session.status.isClosed ? "Reopen from Session Actions to resume." : session.status == .waiting ? "Copy each invitation from Session Details and give it to an agent. Discussion opens when everyone joins." : "Your agents can now exchange critiques, evidence, and ideas.")
+                                Text(session.status.isClosed ? "Reopen from Session Actions to resume." : session.status == .waiting ? "Agents can join through MCP and post immediately. Copy the session instructions from Details to bring them here." : "Your agents can now exchange critiques, evidence, and ideas.")
                                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 350)
                             }.frame(maxWidth: .infinity).padding(.vertical, 34)
                         }
@@ -49,18 +50,26 @@ struct ConversationView: View {
                             } else if event.kind == "proposed" {
                                 DisclosureGroup {
                                     MarkdownText(text: event.text).font(.callout).padding(.top, 8)
+                                    if !session.status.isClosed {
+                                        HStack { Spacer(); AcceptProposalButton { accept(event.id) } }.padding(.top, 8)
+                                    }
                                 } label: {
                                     Text("\(session.participants.first(where: { $0.id == event.participantID })?.name ?? "Agent") · \(event.text.split(separator: ":", maxSplits: 1).first.map(String.init) ?? "Proposed assessment")")
                                         .font(.caption.weight(.medium)).foregroundStyle(.secondary)
                                 }
                                 .padding(.horizontal, 12).padding(.vertical, 10)
-                                .background(ArenaPalette.toolbar, in: RoundedRectangle(cornerRadius: 10))
+                                .background(session.status.isClosed ? ArenaPalette.toolbar : ArenaPalette.pendingProposalFill, in: RoundedRectangle(cornerRadius: 10))
                                 .id(event.id)
-
+                                .contextMenu {
+                                    if !session.status.isClosed {
+                                        Button("Accept as Final Answer", systemImage: "checkmark.seal") { accept(event.id) }
+                                    }
+                                }
                             }
                         }
                         if let proposal = session.proposal {
-                            OutcomeCard(proposal: proposal, session: session)
+                            OutcomeCard(proposal: proposal, session: session, accept: accept, showSource: { id in proxy.scrollTo(id, anchor: .center) })
+                                .id(proposal.id)
                         }
                         Color.clear.frame(height: 1).id("latest")
                     }.padding(24)
@@ -75,7 +84,7 @@ struct ConversationView: View {
             ArenaPalette.divider.frame(height: 1)
             HStack(spacing: 7) {
                 Image(systemName: "eye")
-                Text(session.status.isClosed ? "Discussion \(session.status.title.lowercased()) · Reopen from Session Actions" : "Observer mode · Only agents can join the conversation")
+                Text(session.status.isClosed ? "Discussion \(session.status.title.lowercased()) · Reopen from Session Actions" : "Observer mode · Only agents post · You can accept a final answer")
                 Spacer()
             }
             .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24).padding(.vertical, 12)
@@ -148,7 +157,10 @@ private struct MessageBubble: View {
     }
 
     private var modelLabel: some View {
-        Text(participant.model ?? "Agent").font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary).lineLimit(1)
+        HStack(spacing: 4) {
+            Text(participant.model ?? "Agent").lineLimit(1)
+            Text("· \(event.messageType == "rebuttal" ? "Rebuttal" : "Comment")").fixedSize()
+        }.font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary)
     }
 
     private var timestamp: some View {
@@ -182,34 +194,85 @@ struct MarkdownText: View {
     }
 }
 
+private struct AcceptProposalButton: View {
+    let accept: () -> Void
+    var body: some View {
+        Button(action: accept) {
+            Text("Accept").font(.system(size: 12, weight: .semibold)).foregroundStyle(ArenaPalette.consensus)
+                .padding(.horizontal, 6).frame(height: 24).contentShape(Rectangle())
+        }
+            .buttonStyle(ArenaKeyboardButtonStyle(cornerRadius: 5))
+            .help("Accept this proposal as the final answer and end the discussion")
+            .accessibilityLabel("Accept this proposal as final answer")
+    }
+}
+
 private struct OutcomeCard: View {
     let proposal: OutcomeProposal
     let session: ArenaSession
+    let accept: (String) -> Void
+    let showSource: (String) -> Void
+    private var proposingAuthor: String {
+        let eventID = proposal.sourceEventID ?? session.events.last(where: { $0.kind == "proposed" })?.id
+        let participantID = session.events.first { $0.id == eventID }?.participantID
+        return session.participants.first { $0.id == participantID }?.name ?? "Agent"
+    }
+    private var source: ArenaEvent? { session.events.first { $0.id == proposal.acceptedEventID } }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label(session.status == proposal.outcome ? proposal.outcome.title : "Proposed \(proposal.outcome.title.lowercased())", systemImage: proposal.outcome.symbol)
-                    .font(.system(size: 14, weight: .bold)).foregroundStyle(proposal.outcome.color)
-                Spacer()
-                Text("\(proposal.confirmations.count)/\(session.participants.count) confirmed").font(.caption).foregroundStyle(.secondary)
-            }
-            MarkdownText(text: proposal.assessment)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 18) { confirmations }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 10) { confirmations }
+        VStack(alignment: .trailing, spacing: 4) {
+            card
+            if !session.status.isClosed, let eventID = proposal.sourceEventID ?? session.events.last(where: { $0.kind == "proposed" })?.id {
+                AcceptProposalButton { accept(eventID) }
             }
         }
-        .padding(20).background(proposal.outcome == .consensus ? ArenaPalette.consensusFill : proposal.outcome.color.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(proposal.outcome == .consensus ? ArenaPalette.consensusBorder : proposal.outcome.color.opacity(0.2)))
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label(proposal.acceptedEventID != nil ? "Final answer" : session.status == proposal.outcome ? proposal.outcome.title : "Proposed \(proposal.outcome.title.lowercased()) · \(proposingAuthor)", systemImage: proposal.outcome.symbol)
+                    .font(.system(size: 14, weight: .bold)).foregroundStyle(session.status.isClosed ? proposal.outcome.color : ArenaPalette.pendingProposal)
+                Spacer()
+                if proposal.acceptedEventID != nil {
+                    Text("Chosen by you").font(.caption).foregroundStyle(.secondary)
+                } else if session.status.isClosed {
+                    Text("Agent agreement: \(proposal.confirmations.count) of \(session.joinedParticipants.count)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if !proposal.assessment.isEmpty { MarkdownText(text: proposal.assessment) }
+            if let source {
+                Button("\(session.participants.first { $0.id == source.participantID }?.name ?? "Agent") · Selected answer") { showSource(source.id) }
+                    .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).modifier(ArenaHoverFeedback())
+                    .accessibilityLabel("View selected answer in conversation")
+            } else {
+                if !session.status.isClosed {
+                    Text("Agent agreement: \(proposal.confirmations.count) of \(session.joinedParticipants.count)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if session.status.isClosed {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 18) { confirmations }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 10) { confirmations }
+                    }
+                }
+            }
+        }
+        .padding(20).background(!session.status.isClosed ? ArenaPalette.pendingProposalFill : proposal.outcome == .consensus ? ArenaPalette.consensusFill : proposal.outcome.color.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(!session.status.isClosed ? ArenaPalette.pendingProposalBorder : proposal.outcome == .consensus ? ArenaPalette.consensusBorder : proposal.outcome.color.opacity(0.2)))
+        .contextMenu {
+            if !session.status.isClosed, let eventID = proposal.sourceEventID ?? session.events.last(where: { $0.kind == "proposed" })?.id {
+                Button("Accept as Final Answer", systemImage: "checkmark.seal") { accept(eventID) }
+            }
+        }
     }
 
     private var confirmations: some View {
-        Group {
-                ForEach(session.participants) { participant in
-                    Label(participant.name, systemImage: proposal.confirmations.contains(participant.id) ? "checkmark" : "circle")
-                        .accessibilityLabel("\(participant.name): \(proposal.confirmations.contains(participant.id) ? "Confirmed" : "Pending confirmation")")
-                        .font(.caption).foregroundStyle(proposal.confirmations.contains(participant.id) ? SessionStatus.consensus.color : .secondary)
-                }
+        ForEach(session.joinedParticipants) { participant in
+            Label(participant.name, systemImage: proposal.confirmations.contains(participant.id) ? "checkmark" : "circle")
+                .accessibilityLabel("\(participant.name): \(proposal.confirmations.contains(participant.id) ? "Confirmed" : "Pending confirmation")")
+                .font(.caption).foregroundStyle(proposal.confirmations.contains(participant.id) ? SessionStatus.consensus.color : .secondary)
         }
     }
 }
@@ -231,7 +294,13 @@ struct SessionInspector: View {
                 ArenaPalette.divider.frame(height: 1)
                 VStack(alignment: .leading, spacing: 20) {
                     inspectorHeading("AGENTS")
-                    ForEach(session.participants) { participant in
+                    if !session.status.isClosed {
+                        CopyButton(title: "Copy Join Instructions", text: joinInstructions).font(.caption)
+                    }
+                    if session.joinedParticipants.isEmpty {
+                        Text("No agents have joined yet.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(session.joinedParticipants) { participant in
                         VStack(alignment: .leading, spacing: 9) {
                             HStack(spacing: 9) {
                                 FighterAvatar(participant: participant, size: 32)
@@ -245,11 +314,7 @@ struct SessionInspector: View {
                                     Image(systemName: "checkmark").foregroundStyle(ArenaPalette.consensus).help("Joined").accessibilityLabel("Joined")
                                 }
                             }
-                            if participant.joinedAt == nil {
-                                CopyButton(title: "Copy Invitation", text: invitation(for: participant)).font(.caption)
-                            } else {
-                                Text("Identity saved for reconnection").font(.caption2).foregroundStyle(.secondary)
-                            }
+                            Text("Identity saved for reconnection").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                     Text("Client and model labels are supplied by each agent.").font(.caption2).foregroundStyle(.secondary)
@@ -257,7 +322,7 @@ struct SessionInspector: View {
                 ArenaPalette.divider.frame(height: 1)
                 VStack(alignment: .leading, spacing: 20) {
                     inspectorHeading("HOW THIS ENDS")
-                    Text("Every agent must confirm the same assessment. A new message clears pending confirmations. Agreement and unresolved disagreement are both valid outcomes.")
+                    Text("Choose Accept or right-click → Accept as Final Answer on a specific proposal to end the discussion. Agents can also close it through unanimous confirmation. A new message or new agent clears pending confirmations.")
                         .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary).lineSpacing(4)
                 }
             }.padding(24)
@@ -268,13 +333,13 @@ struct SessionInspector: View {
         Text(title).font(.system(size: 10, weight: .bold)).tracking(1).foregroundStyle(ArenaPalette.secondary)
     }
 
-    private func invitation(for participant: Participant) -> String {
+    private var joinInstructions: String {
         """
-        Join the Arena session “\(session.name)” as a peer reviewer using the configured Arena MCP server at \(endpoint).
-        Call join_session with invitation "\(participant.invitation)", your client and model labels, and a unique request_id. Save the returned participant_token; use it for every subsequent tool call and reconnection. Never share credentials in chat.
-        Read the brief, roster, attachments, status, and revision using read_session. Wait for all \(session.participants.count) participants to join before posting. Read ordered updates using read_events with after_cursor set to your last cursor, limit 50, and wait_seconds 25. Continue the read/respond/wait loop, catching up while has_more is true. External client execution must remain running; Arena does not launch or wake you.
-        Discuss through post_message, with optional reply_to, mentions (participant IDs), and attachment_ids. Use attach_file for an explicitly chosen local file, and read_attachment for text, images, or a PDF page. Use a fresh request_id per mutation; reuse it only when retrying the identical call.
-        When ready, propose_outcome with outcome "consensus" or "impasse", assessment, based_on_revision from the current session, and request_id. Every participant, including the proposer, must call confirm_outcome with the current proposal_id. New messages invalidate pending confirmations. Stop when the status is consensus, impasse, or stopped. Do not manufacture agreement; record unresolved disagreement honestly.
+        Use the Arena skill to join session "\(session.id)" (\(session.name)) through Arena MCP at \(endpoint).
+        Register once with register_client and privately retain client_token. Call join_session with session_id, client_token, your client/model labels, and a fresh request_id. Save participant_token and use it to reconnect; keep all credentials private.
+        Read the brief and attachments, then post your opening comment. Use post_message with message_type comment for observations and tentative ideas, or rebuttal with reply_to for a targeted challenge. Agents may join at any time while the session is open. Keep reading read_events with the last cursor and wait_seconds 25, responding when you have a substantive critique or improvement.
+        Aim to earn the author's approval through the strongest supported proposal: explain the recommendation, trade-offs, evidence, and remaining risks. Exchange comments and targeted rebuttals with a peer before presenting a concrete solution through propose_outcome so the author can accept that specific proposal and close the session immediately. Agents may also propose Consensus or Impasse and unanimously confirm it once at least two agents have joined. New messages or new arrivals invalidate pending assessments. Stop when status is consensus, impasse, or stopped.
+        Arena hosts the discussion; it does not launch or keep external agents running.
         """
     }
 }

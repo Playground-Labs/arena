@@ -47,12 +47,14 @@ enum SessionStatus: String, Codable, Sendable {
 struct Participant: Identifiable, Codable, Sendable {
     var id: String; var name: String; var invitation: String; var credential: String; var index: Int
     var client: String?; var model: String?; var joinedAt: Date?
+    var registrationToken: String?
     var publicValue: JSONValue { .object(["id": .string(id), "name": .string(name), "index": .int(index), "client": client.map(JSONValue.string) ?? .null, "model": model.map(JSONValue.string) ?? .null, "joined": .bool(joinedAt != nil)]) }
 }
 struct ArenaEvent: Identifiable, Codable, Sendable {
     var id: String = UUID().uuidString; var cursor: Int; var kind: String; var text: String
     var participantID: String?; var createdAt: Date = .now; var replyTo: String?
     var mentions: [String] = []; var attachmentIDs: [String] = []
+    var messageType: String?
 }
 struct Attachment: Identifiable, Codable, Sendable {
     var id: String; var name: String; var mimeType: String; var storedName: String; var byteCount: Int; var isBrief: Bool
@@ -60,13 +62,16 @@ struct Attachment: Identifiable, Codable, Sendable {
 }
 struct OutcomeProposal: Identifiable, Codable, Sendable {
     var id: String; var outcome: SessionStatus; var assessment: String; var revision: Int; var confirmations: [String]
+    var acceptedEventID: String?
+    var sourceEventID: String?
 }
 struct ArenaSession: Identifiable, Codable, Sendable {
     var id: String; var name: String; var brief: String; var status: SessionStatus; var revision: Int
     var createdAt: Date; var updatedAt: Date; var participants: [Participant]; var events: [ArenaEvent]
     var attachments: [Attachment]; var proposal: OutcomeProposal?
+    var joinedParticipants: [Participant] { participants.filter { $0.joinedAt != nil } }
     var latestCursor: Int { events.last?.cursor ?? 0 }
     func publicValue(participant: Participant) throws -> JSONValue {
-        .object(["id": .string(id), "name": .string(name), "brief": .string(brief), "status": .string(status.rawValue), "revision": .int(revision), "latest_cursor": .int(latestCursor), "participants": .array(participants.map(\.publicValue)), "participant": participant.publicValue, "attachments": .array(attachments.map(\.publicValue)), "proposal": try proposal.map(JSONValue.encode) ?? .null])
+        .object(["id": .string(id), "name": .string(name), "brief": .string(brief), "status": .string(status.rawValue), "revision": .int(revision), "latest_cursor": .int(latestCursor), "participants": .array(joinedParticipants.map(\.publicValue)), "participant": participant.publicValue, "attachments": .array(attachments.map(\.publicValue)), "proposal": try proposal.map(JSONValue.encode) ?? .null])
     }
 }

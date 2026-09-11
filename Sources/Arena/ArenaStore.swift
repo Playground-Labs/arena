@@ -41,6 +41,14 @@ final class ArenaStore {
             snapshot = try JSONDecoder().decode(ArenaSnapshot.self, from: stored.payload)
         } else { snapshot = ArenaSnapshot() }
         sessions = snapshot.sessions
+        var migrated = snapshot
+        for i in migrated.sessions.indices where migrated.sessions[i].status == .waiting && migrated.sessions[i].joinedParticipants.count >= 2 {
+            migrated.sessions[i].status = .active
+            migrated.sessions[i].proposal = nil
+            migrated.sessions[i].revision += 1
+            _ = event(&migrated.sessions[i], kind: "opened", text: "Session now accepts agents without a preset roster.")
+        }
+        if migrated.sessions.map(\.latestCursor) != snapshot.sessions.map(\.latestCursor) { try commit(migrated, observerControl: true) }
     }
 
     private func commit(_ next: ArenaSnapshot, observerControl: Bool = false) throws {
@@ -66,28 +74,30 @@ final class ArenaStore {
         let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.utf8.count <= max else { throw ArenaError.invalid("\(label) is required and must be at most \(max) UTF-8 bytes.") }; return value
     }
-    private func participants(_ count: Int) throws -> [Participant] {
-        guard (2...32).contains(count) else { throw ArenaError.invalid("Choose 2 to 32 agents.") }
-        return Self.names.shuffled().prefix(count).enumerated().map { index, name in
-            Participant(id: UUID().uuidString, name: name, invitation: Self.secret(), credential: Self.secret(), index: index)
-        }
+    private func newParticipant(in session: ArenaSession) throws -> Participant {
+        guard session.participants.count < 100 else { throw ArenaError.invalid("Local session capacity reached (100 identities).") }
+        let index = session.participants.count
+        let unused = Self.names.filter { name in !session.participants.contains { $0.name == name } }
+        let name = unused.randomElement() ?? "\(Self.names[index % Self.names.count]) \(index / Self.names.count + 1)"
+        return Participant(id: UUID().uuidString, name: name, invitation: Self.secret(), credential: Self.secret(), index: index)
     }
     private static func secret() -> String { UUID().uuidString + UUID().uuidString }
-    private func event(_ session: inout ArenaSession, kind: String, text: String, participant: String? = nil, reply: String? = nil, mentions: [String] = [], attachments: [String] = []) -> ArenaEvent {
-        let event = ArenaEvent(cursor: session.latestCursor + 1, kind: kind, text: text, participantID: participant, replyTo: reply, mentions: mentions, attachmentIDs: attachments)
+    private func event(_ session: inout ArenaSession, kind: String, text: String, participant: String? = nil, reply: String? = nil, mentions: [String] = [], attachments: [String] = [], messageType: String? = nil) -> ArenaEvent {
+        let event = ArenaEvent(cursor: session.latestCursor + 1, kind: kind, text: text, participantID: participant, replyTo: reply, mentions: mentions, attachmentIDs: attachments, messageType: messageType)
         session.events.append(event); session.updatedAt = event.createdAt
         return event
     }
-    func createSession(name: String, brief: String, agentCount: Int, files: [URL] = [], requestID: String? = nil, clientToken: String? = nil) async throws -> String {
+    func createSession(name: String, brief: String, legacyAgentCount: Int = 2, files: [URL] = [], requestID: String? = nil, clientToken: String? = nil) async throws -> String {
         let key: String?
         if let requestID {
             guard let clientToken, snapshot.clientTokens?.contains(clientToken) == true else { throw ArenaError.invalid("Call register_client and retain its private client_token before creating a session.") }
             key = receiptKey(scope: "create_session:" + clientToken, request: try clean(requestID, label: "request_id", max: 200))
         } else { key = nil }
-        let hash = try fingerprint(tool: "create_session", args: ["name": .string(name), "brief": .string(brief), "agent_count": .int(agentCount), "files": .array(files.map { .string($0.path) })])
+        // Preserve legacy creation retry fingerprints; agent_count no longer reserves identities.
+        let hash = try fingerprint(tool: "create_session", args: ["name": .string(name), "brief": .string(brief), "agent_count": .int(legacyAgentCount), "files": .array(files.map { .string($0.path) })])
         if let key, let receipt = try replay(key, hash: hash), let id = receipt.data.objectValue?["session_id"]?.stringValue { return id }
         let id = UUID().uuidString
-        var session = ArenaSession(id: id, name: try clean(name, label: "Session name", max: 200), brief: try clean(brief, label: "Brief", max: 100_000), status: .waiting, revision: 0, createdAt: .now, updatedAt: .now, participants: try participants(agentCount), events: [], attachments: [])
+        var session = ArenaSession(id: id, name: try clean(name, label: "Session name", max: 200), brief: try clean(brief, label: "Brief", max: 100_000), status: .waiting, revision: 0, createdAt: .now, updatedAt: .now, participants: [], events: [], attachments: [])
         guard files.count <= 32 else { throw ArenaError.invalid("At most 32 brief attachments are supported.") }
         let attachmentDirectory = directory.appendingPathComponent("Attachments").appendingPathComponent(id)
         do {
@@ -97,19 +107,19 @@ final class ArenaStore {
                 try? FileManager.default.removeItem(at: attachmentDirectory)
                 return previousID
             }
-            _ = event(&session, kind: "setup", text: "Session created. Waiting for \(agentCount) agents.")
+            _ = event(&session, kind: "setup", text: "Session created. Open for agents to join.")
             var next = snapshot; next.sessions.insert(session, at: 0)
             if let key { next.receipts[key] = MutationReceipt(fingerprint: hash, result: ArenaToolResult(data: .object(["session_id": .string(id)]))) }
             try commit(next)
         } catch { try? FileManager.default.removeItem(at: attachmentDirectory); throw error }
         return id
     }
-    func editSession(_ id: String, name: String, brief: String, agentCount: Int) throws {
+    func editSession(_ id: String, name: String, brief: String) throws {
         let i = try index(id)
         let name = try clean(name, label: "Session name", max: 200)
         let brief = try clean(brief, label: "Brief", max: 100_000)
         let session = snapshot.sessions[i]
-        let setupChanged = brief != session.brief || agentCount != session.participants.count
+        let setupChanged = brief != session.brief
         guard setupChanged || name != session.name else { return }
         if setupChanged {
             guard session.status == .waiting, session.participants.allSatisfy({ $0.joinedAt == nil }) else {
@@ -119,13 +129,29 @@ final class ArenaStore {
         var next = snapshot
         if setupChanged {
             next.sessions[i].brief = brief
-            if agentCount != session.participants.count { next.sessions[i].participants = try participants(agentCount) }
-            _ = event(&next.sessions[i], kind: "setup", text: "Brief and participant slots updated.")
+            _ = event(&next.sessions[i], kind: "setup", text: "Brief updated.")
         }
         if name != session.name {
             next.sessions[i].name = name
             _ = event(&next.sessions[i], kind: "renamed", text: "Session renamed to \(name).")
         }
+        try commit(next, observerControl: true)
+    }
+    func acceptAnswer(_ id: String, eventID: String) throws {
+        let i = try index(id)
+        var next = snapshot
+        var session = next.sessions[i]
+        guard !session.status.isClosed else { throw ArenaError.invalid("Session is already closed.") }
+        guard let source = session.events.first(where: { $0.id == eventID && $0.kind == "proposed" }),
+              let author = session.joinedParticipants.first(where: { $0.id == source.participantID }) else {
+            throw ArenaError.invalid("Choose an explicit agent proposal from this session.")
+        }
+        let assessment = String(source.text.split(separator: ":", maxSplits: 1).last ?? "").trimmingCharacters(in: .whitespaces)
+        session.proposal = OutcomeProposal(id: UUID().uuidString, outcome: .consensus, assessment: assessment,
+                                          revision: session.revision, confirmations: [], acceptedEventID: source.id)
+        session.status = .consensus
+        _ = event(&session, kind: "accepted", text: "Observer accepted \(author.name)’s answer. Discussion closed.", participant: author.id, reply: source.id)
+        next.sessions[i] = session
         try commit(next, observerControl: true)
     }
     func stopSession(_ id: String) throws {
@@ -137,7 +163,7 @@ final class ArenaStore {
     func reopenSession(_ id: String) throws {
         let i = try index(id); var next = snapshot
         guard next.sessions[i].status.isClosed else { throw ArenaError.invalid("Only closed sessions can be reopened.") }
-        next.sessions[i].status = next.sessions[i].participants.allSatisfy { $0.joinedAt != nil } ? .active : .waiting
+        next.sessions[i].status = next.sessions[i].joinedParticipants.count >= 2 ? .active : .waiting
         next.sessions[i].proposal = nil; next.sessions[i].revision += 1
         _ = event(&next.sessions[i], kind: "reopened", text: "Observer reopened the session."); try commit(next, observerControl: true)
     }
@@ -201,7 +227,7 @@ final class ArenaStore {
             let page = matches.dropFirst(offset).prefix(limit)
             let data: [JSONValue] = try page.map { session in
                 .object(["id": .string(session.id), "name": .string(session.name), "brief_preview": .string(String(session.brief.prefix(240))),
-                         "status": .string(session.status.rawValue), "agent_count": .int(session.participants.count),
+                         "status": .string(session.status.rawValue), "agent_count": .int(session.joinedParticipants.count),
                          "joined_count": .int(session.participants.filter { $0.joinedAt != nil }.count), "updated_at": try JSONValue.encode(session.updatedAt)])
             }
             return ArenaToolResult(data: .object(["sessions": .array(data), "next_offset": .int(min(offset, matches.count) + data.count), "has_more": .bool(page.count < matches.count - min(offset, matches.count))]))
@@ -210,7 +236,7 @@ final class ArenaStore {
             let paths = try strings(args, "attachment_paths")
             guard paths.allSatisfy({ $0.hasPrefix("/") && $0.utf8.count <= 4096 }) else { throw ArenaError.invalid("Attachment paths must be absolute and at most 4096 UTF-8 bytes.") }
             let id = try await createSession(name: string(args, "name", max: 200), brief: string(args, "brief"),
-                                       agentCount: integer(args, "agent_count", default: 2), files: paths.map { URL(fileURLWithPath: $0) },
+                                       legacyAgentCount: integer(args, "agent_count", default: 2), files: paths.map { URL(fileURLWithPath: $0) },
                                        requestID: string(args, "request_id", max: 200), clientToken: clientToken(args))
             return ArenaToolResult(data: .object(["session_id": .string(id)]))
         }
@@ -244,25 +270,27 @@ final class ArenaStore {
         let data: JSONValue
         switch tool {
         case "post_message":
-            guard session.status == .active else { throw ArenaError.invalid("Wait until every participant has joined before posting.") }
             let attachments = try strings(args, "attachment_ids"), mentions = try strings(args, "mentions")
             let text: String
             if args["text"] == nil || args["text"] == .string("") { text = "" } else { text = try string(args, "text") }
             guard !text.isEmpty || !attachments.isEmpty else { throw ArenaError.invalid("Message requires text or attachments.") }
             guard attachments.allSatisfy({ id in session.attachments.contains { $0.id == id } }), mentions.allSatisfy({ id in session.participants.contains { $0.id == id } }) else { throw ArenaError.invalid("Message references a participant or attachment outside this session.") }
+            let messageType = args["message_type"] == nil ? "comment" : try string(args, "message_type", max: 20)
+            guard ["comment", "rebuttal"].contains(messageType) else { throw ArenaError.invalid("message_type must be comment or rebuttal; use propose_outcome for an explicit proposal.") }
             let reply = try args["reply_to"].map { _ in try string(args, "reply_to", max: 100) }
-            guard reply == nil || session.events.contains(where: { $0.id == reply && $0.kind == "message" }) else { throw ArenaError.invalid("reply_to must reference a message in this session.") }
+            guard messageType != "rebuttal" || reply != nil else { throw ArenaError.invalid("A rebuttal must reply_to the comment or proposal it challenges.") }
+            guard reply == nil || session.events.contains(where: { $0.id == reply && ["message", "proposed"].contains($0.kind) }) else { throw ArenaError.invalid("reply_to must reference a message or proposal in this session.") }
             session.revision += 1; session.proposal = nil
-            data = try JSONValue.encode(event(&session, kind: "message", text: text, participant: participant.id, reply: reply, mentions: mentions, attachments: attachments))
+            data = try JSONValue.encode(event(&session, kind: "message", text: text, participant: participant.id, reply: reply, mentions: mentions, attachments: attachments, messageType: messageType))
         case "propose_outcome":
-            guard session.status == .active else { throw ArenaError.invalid("Outcomes require every participant to join.") }
             let revision = try integer(args, "based_on_revision")
             guard revision == session.revision else { throw ArenaError.invalid("Stale discussion revision; read the session again.") }
             let raw = try string(args, "outcome", max: 20)
             guard let outcome = SessionStatus(rawValue: raw), outcome == .consensus || outcome == .impasse else { throw ArenaError.invalid("outcome must be consensus or impasse.") }
             session.proposal = OutcomeProposal(id: UUID().uuidString, outcome: outcome, assessment: try string(args, "assessment"), revision: revision, confirmations: [])
-            _ = event(&session, kind: "proposed", text: "Proposed \(outcome.title): \(session.proposal!.assessment)", participant: participant.id)
-            data = .object(["id": .string(session.proposal!.id), "outcome": .string(outcome.rawValue), "revision": .int(revision)])
+            let proposed = event(&session, kind: "proposed", text: "Proposed \(outcome.title): \(session.proposal!.assessment)", participant: participant.id)
+            session.proposal!.sourceEventID = proposed.id
+            data = .object(["id": .string(session.proposal!.id), "event_id": .string(proposed.id), "outcome": .string(outcome.rawValue), "revision": .int(revision)])
         default:
             let proposalID = try string(args, "proposal_id", max: 100)
             guard var proposal = session.proposal, proposal.id == proposalID, proposal.revision == session.revision else { throw ArenaError.invalid("Stale assessment; read the session again.") }
@@ -271,7 +299,7 @@ final class ArenaStore {
                 _ = event(&session, kind: "confirmed", text: "\(participant.name) confirmed \(proposal.outcome.title).", participant: participant.id)
             }
             session.proposal = proposal
-            if proposal.confirmations.count == session.participants.count {
+            if session.joinedParticipants.count >= 2 && Set(proposal.confirmations) == Set(session.joinedParticipants.map(\.id)) {
                 session.status = proposal.outcome
                 _ = event(&session, kind: "closed", text: "All participants confirmed \(proposal.outcome.title).")
             }
@@ -316,28 +344,47 @@ final class ArenaStore {
         if let receipt = snapshot.receipts[key] {
             guard receipt.fingerprint == hash else { throw ArenaError.invalid("request_id was already used with different input.") }; return receipt.result
         }
+        var next = snapshot
         let i: Int
         let p: Int
+        let registration: String?
         if let sessionID {
             i = try index(sessionID)
-            guard let available = snapshot.sessions[i].participants.firstIndex(where: { $0.joinedAt == nil }) else {
-                throw ArenaError.invalid("Session is full; resume with your participant_token or choose another session.")
+            let registered = try clientToken(args)
+            registration = registered
+            // Older versions saved the client binding only in private join receipts.
+            let priorCredential = snapshot.receipts.first {
+                $0.key.hasPrefix("join_session:\(registered):") && $0.value.result.data.objectValue?["id"]?.stringValue == sessionID
+            }?.value.result.data.objectValue?["participant_token"]?.stringValue
+            if let existing = next.sessions[i].participants.firstIndex(where: { ($0.registrationToken == registered || $0.credential == priorCredential) && $0.joinedAt != nil }) {
+                p = existing
+            } else {
+                guard !next.sessions[i].status.isClosed else { throw ArenaError.invalid("Session is closed.") }
+                if let available = next.sessions[i].participants.firstIndex(where: { $0.joinedAt == nil }) { p = available }
+                else {
+                    p = next.sessions[i].participants.count
+                    next.sessions[i].participants.append(try newParticipant(in: next.sessions[i]))
+                }
             }
-            p = available
         } else {
+            registration = nil
             guard let found = snapshot.sessions.firstIndex(where: { $0.participants.contains { $0.invitation == invitation } }),
                   let slot = snapshot.sessions[found].participants.firstIndex(where: { $0.invitation == invitation }) else { throw ArenaError.invalid("Invalid invitation.") }
             i = found; p = slot
+            guard next.sessions[i].participants[p].joinedAt == nil else { throw ArenaError.invalid("Invitation already redeemed; resume using the original participant credential and request_id.") }
+            guard !next.sessions[i].status.isClosed else { throw ArenaError.invalid("Session is closed.") }
         }
-        guard snapshot.sessions[i].participants[p].joinedAt == nil else { throw ArenaError.invalid("Invitation already redeemed; resume using the original participant credential and request_id.") }
-        guard !snapshot.sessions[i].status.isClosed else { throw ArenaError.invalid("Session is closed.") }
-        var next = snapshot
-        next.sessions[i].participants[p].client = try string(args, "client", max: 100)
-        next.sessions[i].participants[p].model = try string(args, "model", max: 100)
-        next.sessions[i].participants[p].joinedAt = .now
+        if let registration { next.sessions[i].participants[p].registrationToken = registration }
+        if next.sessions[i].participants[p].joinedAt == nil {
+            next.sessions[i].participants[p].client = try string(args, "client", max: 100)
+            next.sessions[i].participants[p].model = try string(args, "model", max: 100)
+            next.sessions[i].participants[p].joinedAt = .now
+            next.sessions[i].status = next.sessions[i].joinedParticipants.count >= 2 ? .active : .waiting
+            next.sessions[i].revision += 1
+            next.sessions[i].proposal = nil
+            _ = event(&next.sessions[i], kind: "joined", text: "\(next.sessions[i].participants[p].name) joined.", participant: next.sessions[i].participants[p].id)
+        }
         let participant = next.sessions[i].participants[p]
-        if next.sessions[i].participants.allSatisfy({ $0.joinedAt != nil }) { next.sessions[i].status = .active }
-        _ = event(&next.sessions[i], kind: "joined", text: "\(participant.name) joined.", participant: participant.id)
         var projection = try next.sessions[i].publicValue(participant: participant).objectValue!
         projection["participant_token"] = .string(participant.credential)
         let result = ArenaToolResult(data: .object(projection))

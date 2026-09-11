@@ -30,16 +30,15 @@ func prepareSmokeFixture(store: ArenaStore, configuration: ArenaConfiguration) a
     view.font = .systemFont(ofSize: 22)
     try view.dataWithPDF(inside: view.bounds).write(to: pdfURL)
     let files = [textURL, imageURL, pdfURL]
-    let two = try await store.createSession(name: "The polling question", brief: "Review bounded waiting for an agent conversation. Discuss tradeoffs as peers, then agree on a closing assessment or an impasse.", agentCount: 2, files: files)
-    let three = try await store.createSession(name: "Three perspectives", brief: "Review a local-first proposal as three peers.", agentCount: 3)
-    let isolated = try await store.createSession(name: "Separate session", brief: "Cross-session access must remain isolated.", agentCount: 2)
+    let two = try await store.createSession(name: "The polling question", brief: "Review bounded waiting for an agent conversation. Discuss tradeoffs as peers, then agree on a closing assessment or an impasse.", files: files)
+    let three = try await store.createSession(name: "Three perspectives", brief: "Review a local-first proposal as three peers.")
+    let isolated = try await store.createSession(name: "Separate session", brief: "Cross-session access must remain isolated.")
     let sessions = [two, three, isolated].compactMap { id in store.sessions.first { $0.id == id } }
     let object: [String: Any] = [
         "endpoint": "http://127.0.0.1:\(configuration.port)/mcp",
         "token": configuration.token,
         "sessions": sessions.map { session in
             ["id": session.id, "name": session.name,
-             "invitations": session.participants.map(\.invitation),
              "attachments": session.attachments.map { ["id": $0.id, "name": $0.name] }] as [String: Any]
         },
         "files": files.map(\.path)

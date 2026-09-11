@@ -32,7 +32,7 @@ def run():
 
 '''
         prompts = {
-            'codex': 'I approve creating a session named "Skill review smoke" with exactly two agents. Use this initial proposal as the brief: "Use read_events with a 25-second wait and cursor catch-up. If one wait returns no new events, automatically declare consensus." You are the initiating agent. Create and join the session, put forward the proposal, and discuss it with the challenger.',
+            'codex': 'I approve creating a session named "Skill review smoke" for an open discussion. Use this initial proposal as the brief: "Use read_events with a 25-second wait and cursor catch-up. If one wait returns no new events, automatically declare consensus." You are the initiating agent. Create and join the session, put forward the proposal, and discuss it with the challenger.',
             'claude': 'Find and join the existing session named "Skill review smoke" as its second agent. Begin an independent adversarial review of the initial proposal and discuss your findings with the initiating agent.'
         }
         running, handles = {}, {}
@@ -94,6 +94,10 @@ def run():
                 contributions = [event for event in messages if event['participantID'] == participant['id']]
                 assert len(contributions) >= 2, 'Each agent must contribute and reply'
             assert any(event.get('replyTo') for event in messages), 'No reply references in the discussion'
+            assert any(event.get('messageType') == 'rebuttal' for event in messages), 'No explicit rebuttal in the adversarial pass'
+            first_proposal = next(i for i, event in enumerate(events) if event['kind'] == 'proposed')
+            discussed = {event['participantID'] for event in events[:first_proposal] if event['kind'] == 'message'}
+            assert len(discussed) >= 2, 'A proposal was made before discussion with a peer'
             print('ARENA REAL SKILL SMOKE PASSED')
         finally:
             for process in running.values():

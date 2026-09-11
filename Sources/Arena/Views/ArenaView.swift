@@ -36,14 +36,14 @@ struct ArenaView: View {
             }.padding(24).frame(width: 520, height: 440)
         }
         .sheet(isPresented: $showingNewSession) {
-            SessionEditor(session: nil) { name, brief, count, files in
-                selection = try await store.createSession(name: name, brief: brief, agentCount: count, files: files)
+            SessionEditor(session: nil) { name, brief, files in
+                selection = try await store.createSession(name: name, brief: brief, files: files)
                 showingDetails = true
             }
         }
         .sheet(item: $editingSession) { session in
-            SessionEditor(session: session) { name, brief, count, _ in
-                try store.editSession(session.id, name: name, brief: brief, agentCount: count)
+            SessionEditor(session: session) { name, brief, _ in
+                try store.editSession(session.id, name: name, brief: brief)
             }
         }
         .sheet(isPresented: $setup.showingSettings) {
@@ -76,7 +76,9 @@ struct ArenaView: View {
         VStack(spacing: 0) {
             windowHeader
             if let session = selected {
-                ConversationView(session: session) { attachment in
+                ConversationView(session: session, accept: { eventID in
+                    perform { try store.acceptAnswer(session.id, eventID: eventID) }
+                }) { attachment in
                     preview = AttachmentSelection(sessionID: session.id, attachment: attachment)
                 }
             } else {
@@ -344,12 +346,11 @@ struct FighterAvatar: View {
 
 struct SessionEditor: View {
     let session: ArenaSession?
-    let save: (String, String, Int, [URL]) async throws -> Void
+    let save: (String, String, [URL]) async throws -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var suggestedName = SessionNames.locations.randomElement() ?? "Asgard"
     @State private var brief = ""
-    @State private var count = 2
     @State private var files: [URL] = []
     @State private var importing = false
     @State private var saving = false
@@ -384,8 +385,7 @@ struct SessionEditor: View {
                     .background(.background, in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(.quaternary))
                     .disabled(!setupEditable).accessibilityLabel("Review brief")
-                Stepper("\(count) peer agents", value: $count, in: 2...32).disabled(!setupEditable)
-                if !setupEditable { Label("The brief and roster lock when the first agent joins.", systemImage: "lock").font(.caption).foregroundStyle(.secondary) }
+                if !setupEditable { Label("The brief locks when the first agent joins.", systemImage: "lock").font(.caption).foregroundStyle(.secondary) }
             }
             if session == nil {
                 VStack(alignment: .leading, spacing: 8) {
@@ -409,7 +409,7 @@ struct SessionEditor: View {
                     saving = true
                     Task {
                         defer { saving = false }
-                        do { try await save(nameToSave, brief, count, files); dismiss() } catch { self.error = error.localizedDescription }
+                        do { try await save(nameToSave, brief, files); dismiss() } catch { self.error = error.localizedDescription }
                     }
                 }
                 .buttonStyle(.borderedProminent).modifier(ArenaHoverFeedback(accent: true)).keyboardShortcut(.defaultAction)
@@ -418,7 +418,7 @@ struct SessionEditor: View {
         }
         .padding(28).frame(width: 550).disabled(saving).interactiveDismissDisabled(saving)
         .onAppear {
-            if let session { name = session.name; brief = session.brief; count = session.participants.count }
+            if let session { name = session.name; brief = session.brief }
             else if name.isEmpty { name = suggestedName }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .png, .jpeg, .pdf], allowsMultipleSelection: true) { result in

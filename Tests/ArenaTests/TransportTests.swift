@@ -106,8 +106,8 @@ final class TransportTests: XCTestCase {
 
     func testConcurrentClientsCanReuseRequestIDsAndRouteStructuredTools() async throws {
         let store = try makeStore()
-        _ = try await store.createSession(name: "Transport review", brief: "Critique a proposal", agentCount: 2)
-        let invitations = store.sessions[0].participants.map(\.invitation)
+        _ = try await store.createSession(name: "Transport review", brief: "Critique a proposal")
+        let sessionID = store.sessions[0].id
         let router = MCPHTTPRouter(store: store, port: port, token: token)
         let first = try await initialize(router)
         let second = try await initialize(router)
@@ -115,7 +115,9 @@ final class TransportTests: XCTestCase {
 
         var calls: [MCPExchange] = []
         for (index, session) in [first, second].enumerated() {
-            calls.append(await router.handle(try request(session: session, body: ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": "join_session", "arguments": ["invitation": .string(invitations[index]), "request_id": .string("join-\(index)"), "client": "test", "model": "test-model"]]])))
+            let registration = try await store.execute(tool: "register_client", arguments: [:])
+            let clientToken = try XCTUnwrap(registration.data.objectValue?["client_token"]?.stringValue)
+            calls.append(await router.handle(try request(session: session, body: ["jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": ["name": "join_session", "arguments": ["session_id": .string(sessionID), "client_token": .string(clientToken), "request_id": .string("join-\(index)"), "client": "test", "model": "test-model"]]])))
         }
         let a = try await consume(calls[0], router: router)
         let b = try await consume(calls[1], router: router)
@@ -137,9 +139,9 @@ final class TransportTests: XCTestCase {
 
     func testCancellationReleasesWaitingStreamAndSession() async throws {
         let store = try makeStore()
-        _ = try await store.createSession(name: "Wait review", brief: "Review", agentCount: 2)
-        let invitation = store.sessions[0].participants[0].invitation
-        let joined = try await store.execute(tool: "join_session", arguments: ["invitation": .string(invitation), "request_id": .string("join"), "client": .string("test"), "model": .string("test")])
+        _ = try await store.createSession(name: "Wait review", brief: "Review")
+        let registration = try await store.execute(tool: "register_client", arguments: [:])
+        let joined = try await store.execute(tool: "join_session", arguments: ["session_id": .string(store.sessions[0].id), "client_token": try XCTUnwrap(registration.data.objectValue?["client_token"]), "request_id": .string("join"), "client": .string("test"), "model": .string("test")])
         let participant = try XCTUnwrap(joined.data.objectValue?["participant_token"]?.stringValue)
         let cursor = store.sessions[0].latestCursor
         let router = MCPHTTPRouter(store: store, port: port, token: token)
@@ -193,8 +195,9 @@ final class TransportTests: XCTestCase {
 
     func testReplayBudgetBlocksNewWorkWhileWaitDrainsThenRotates() async throws {
         let store = try makeStore()
-        _ = try await store.createSession(name: "Bounded replay", brief: "Review", agentCount: 2)
-        let joined = try await store.execute(tool: "join_session", arguments: ["invitation": .string(store.sessions[0].participants[0].invitation), "request_id": .string("join"), "client": .string("test"), "model": .string("test")])
+        _ = try await store.createSession(name: "Bounded replay", brief: "Review")
+        let registration = try await store.execute(tool: "register_client", arguments: [:])
+        let joined = try await store.execute(tool: "join_session", arguments: ["session_id": .string(store.sessions[0].id), "client_token": try XCTUnwrap(registration.data.objectValue?["client_token"]), "request_id": .string("join"), "client": .string("test"), "model": .string("test")])
         let participant = try XCTUnwrap(joined.data.objectValue?["participant_token"]?.stringValue)
         let router = MCPHTTPRouter(store: store, port: port, token: token, replayBudget: 2048)
         let session = try await initialize(router)

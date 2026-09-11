@@ -1,5 +1,8 @@
 # Agents can prepare sessions through the trusted local service
 
+Updated by [open participation and author approval](0004-open-participation-and-author-approval.md). The fixed-roster and unanimity-only decisions below are historical.
+
+
 The Arena skill checks its MCP connection, discovers sessions, and offers to create a concrete proposal session with the observer's approval. Session discovery and creation therefore operate under the existing local service token, before a participant credential exists. Discovery returns bounded summaries without invitations or participant credentials. Joining may redeem an invitation or atomically claim one available slot by session ID; retries retain the original identity, and a full roster stays full.
 
 Creation uses the same serialized domain operation as the native setup form, including immutable attachment copies and an atomic idempotency receipt. The skill supplies the initial plan as the brief and distinguishes the initiating explanation from a later agent's adversarial pass. These are review approaches, not assigned or privileged domain roles. Agents retain equal outcome rights, explicit unanimity remains mandatory, and stop/reopen remains human-controlled. Approval before agent creation is enforced by the skill's workflow; the local MCP service trusts holders of its service token rather than introducing another approval subsystem.

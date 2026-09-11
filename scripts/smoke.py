@@ -138,8 +138,11 @@ class MCPClient:
             data = json.loads(next(x['text'] for x in result['content'] if x['type'] == 'text'))
         return data, result.get('content', [])
 
-    def join(self, invitation, label):
-        data, _ = self.call('join_session', dict(invitation=invitation, request_id=label + '-join', client=label, model='smoke'))
+    def join(self, session_id, label):
+        if not hasattr(self, "client_token"):
+            registration, _ = self.call("register_client", {})
+            self.client_token = registration["client_token"]
+        data, _ = self.call('join_session', dict(session_id=session_id, client_token=self.client_token, request_id=label + '-join', client=label, model='smoke'))
         self.participant_token = data['participant_token']
         return data
 
@@ -153,10 +156,10 @@ def run():
         first, second = MCPClient(fixture), MCPClient(fixture)
         first_identity = first.call('register_client', {})[0]['client_token']
         second_identity = second.call('register_client', {})[0]['client_token']
-        created, _ = first.call('create_session', {'client_token': first_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
-        duplicate, _ = first.call('create_session', {'client_token': first_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
+        created, _ = first.call('create_session', {'client_token': first_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'request_id': 'create-through-http'})
+        duplicate, _ = first.call('create_session', {'client_token': first_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'request_id': 'create-through-http'})
         assert created == duplicate
-        independent, _ = second.call('create_session', {'client_token': second_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'agent_count': 2, 'request_id': 'create-through-http'})
+        independent, _ = second.call('create_session', {'client_token': second_identity, 'name': 'Skill bootstrap', 'brief': 'Review the bounded wait protocol.', 'request_id': 'create-through-http'})
         assert independent['session_id'] != created['session_id']
         first.call('create_session', {'name': 'Missing identity', 'brief': 'Review', 'request_id': 'bad'}, error=True)
         discovered, _ = second.call('list_sessions', {'query': created['session_id']})
@@ -169,9 +172,8 @@ def run():
         reconnected = MCPClient(fixture)
         replay, _ = reconnected.call('join_session', {'client_token': first_identity, 'session_id': created['session_id'], 'request_id': 'same-request', 'client': 'same-client', 'model': 'test'})
         assert replay['participant_token'] == joined_slots[0]['participant_token']
-        slots = fixture['sessions'][0]['invitations']
-        first.join(slots[0], 'alpha')
-        joined = second.join(slots[1], 'beta')
+        first.join(fixture['sessions'][0]['id'], 'alpha')
+        joined = second.join(fixture['sessions'][0]['id'], 'beta')
         assert joined['status'] == 'active'
         names = [p['name'] for p in joined['participants']]
         assert len(set(names)) == 2
@@ -200,6 +202,8 @@ def run():
         assert event_batch['events'][-1]['id'] == message['id']
         assert second.agent('post_message', request_id='beta-message', text='Bounded waits prevent indefinite blocked calls.')['id'] == message['id']
         second.call('post_message', dict(participant_token=second.participant_token, request_id='beta-message', text='Changed input'), error=True)
+        rebuttal = first.agent('post_message', request_id='alpha-rebuttal', text='Bounded waits also need cursor catch-up.', message_type='rebuttal', reply_to=message['id'])
+        assert rebuttal['messageType'] == 'rebuttal' and rebuttal['replyTo'] == message['id']
         state = first.agent('read_session')
         start = time.monotonic()
         empty = first.agent('read_events', after_cursor=state['latest_cursor'], wait_seconds=1)
@@ -218,7 +222,7 @@ def run():
         assert first.agent('attach_file', request_id='upload', path=fixture['files'][0]) == upload
         first.agent('post_message', request_id='attachment-message', text='Evidence attached.', attachment_ids=[upload['id']])
         unrelated = MCPClient(fixture)
-        unrelated.join(fixture['sessions'][2]['invitations'][0], 'isolated')
+        unrelated.join(fixture['sessions'][2]['id'], 'isolated')
         unrelated.call('read_attachment', dict(participant_token=unrelated.participant_token, attachment_id=attachment_ids['proposal.md']), error=True)
         state = first.agent('read_session')
         proposal = first.agent('propose_outcome', request_id='proposal-old', outcome='consensus', assessment='Bounded waits with cursor catch-up.', based_on_revision=state['revision'])
@@ -236,7 +240,7 @@ def run():
         assert resumed.agent('read_session')['status'] == 'consensus'
         clients = [MCPClient(fixture) for _ in range(3)]
         for index, client in enumerate(clients):
-            client.join(fixture['sessions'][1]['invitations'][index], 'tri-' + str(index))
+            client.join(fixture['sessions'][1]['id'], 'tri-' + str(index))
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             posts = list(executor.map(lambda pair: pair[1].agent('post_message', request_id='peer-message', text='Perspective ' + str(pair[0])), enumerate(clients)))
         assert len({post['id'] for post in posts}) == 3
