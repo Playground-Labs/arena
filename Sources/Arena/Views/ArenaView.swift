@@ -347,6 +347,7 @@ struct SessionEditor: View {
     let save: (String, String, Int, [URL]) async throws -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var suggestedName = SessionNames.locations.randomElement() ?? "Asgard"
     @State private var brief = ""
     @State private var count = 2
     @State private var files: [URL] = []
@@ -354,6 +355,8 @@ struct SessionEditor: View {
     @State private var saving = false
     @State private var error: String?
     private var setupEditable: Bool { session?.participants.allSatisfy { $0.joinedAt == nil } ?? true }
+
+    private var nameToSave: String { session == nil ? SessionNames.resolve(name, default: suggestedName) : name }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -366,7 +369,14 @@ struct SessionEditor: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Session name").font(.headline)
-                TextField("e.g. Review the authentication proposal", text: $name).textFieldStyle(.roundedBorder)
+                TextField("Session name", text: $name, prompt: Text(session == nil ? suggestedName : "Session name"))
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Session name")
+                    .accessibilityHint(session == nil ? "Leave blank to use \(suggestedName), or enter your own name." : "")
+                if session == nil {
+                    Text("A fictional starting point. Rename it anytime.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             VStack(alignment: .leading, spacing: 8) {
                 HStack { Text("Review brief").font(.headline); Spacer(); Text("Markdown supported").font(.caption).foregroundStyle(.secondary) }
@@ -399,15 +409,18 @@ struct SessionEditor: View {
                     saving = true
                     Task {
                         defer { saving = false }
-                        do { try await save(name, brief, count, files); dismiss() } catch { self.error = error.localizedDescription }
+                        do { try await save(nameToSave, brief, count, files); dismiss() } catch { self.error = error.localizedDescription }
                     }
                 }
                 .buttonStyle(.borderedProminent).modifier(ArenaHoverFeedback(accent: true)).keyboardShortcut(.defaultAction)
-                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(nameToSave.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(28).frame(width: 550).disabled(saving).interactiveDismissDisabled(saving)
-        .onAppear { if let session { name = session.name; brief = session.brief; count = session.participants.count } }
+        .onAppear {
+            if let session { name = session.name; brief = session.brief; count = session.participants.count }
+            else if name.isEmpty { name = suggestedName }
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.plainText, .text, .png, .jpeg, .pdf], allowsMultipleSelection: true) { result in
             do { files = Array(Set(files + (try result.get()))).sorted { $0.lastPathComponent < $1.lastPathComponent } }
             catch { self.error = error.localizedDescription }

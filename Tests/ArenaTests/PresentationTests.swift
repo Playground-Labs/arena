@@ -34,6 +34,19 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(restored.rightAlignedParticipantIDs, session.rightAlignedParticipantIDs)
     }
 
+    func testFictionalSessionDefaultsAndCustomNames() {
+        XCTAssertGreaterThanOrEqual(SessionNames.locations.count, 100)
+        XCTAssertEqual(Set(SessionNames.locations).count, SessionNames.locations.count)
+        XCTAssertTrue(["Asgard", "Olympus", "Metropolis", "Westeros", "Woodsboro"].allSatisfy(SessionNames.locations.contains))
+        for location in SessionNames.locations {
+            XCTAssertFalse(location.isEmpty)
+            XCTAssertLessThanOrEqual(location.count, 200)
+            XCTAssertEqual(SessionNames.resolve("", default: location), location)
+            XCTAssertEqual(SessionNames.resolve(" \n\t", default: location), location)
+            XCTAssertEqual(SessionNames.resolve("  My review  ", default: location), "My review")
+        }
+    }
+
     func testCompactActivityTimeBoundaries() {
         let now = Date(timeIntervalSince1970: 200_000)
         for (age, expected) in [(-1, "Now"), (59, "Now"), (60, "1m"), (3_599, "59m"),

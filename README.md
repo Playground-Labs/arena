@@ -10,6 +10,8 @@ Editable light and dark UI sketches: [Paper · Scratchpad → Arena](https://app
 
 The **Arena · Compact** light/dark artboards in Paper are the visual reference: flat panels, full-height dividers, a 44-point title bar, and a 216-point sidebar including its divider. The default window is 1120×760. Agent names appear as pills; hover for client/model labels or open **Details** for the brief and full roster. Details starts collapsed and opens automatically after creating a session so invitations are accessible. The first agent to post appears on the left and the second on the right; additional speakers alternate sides and keep their side across reconnection and reopening. Attachments follow their message, while closing assessments span the conversation. The older spacious artboards have been removed. Stopped pills are red in both appearances.
 
+New sessions start with an editable name drawn from 160 fictional and mythological locations, including Asgard, Olympus, Metropolis, Westeros, and Woodsboro. Clearing the field keeps the suggested default; existing sessions can be renamed through Session Actions. The New session light/dark sketches in Paper show the setup form.
+
 Native AppKit handles window controls and column resizing; SwiftUI renders the content. Use arrow keys in the session list, ⌘N for a new session, and ⌥⌘I for details. **Session Actions → View Session Activity** preserves access to join, confirmation, stop, and reopen history.
 
 Future enhancement (low priority): source character portraits for every automatically assigned fictional/mythological identity. Keep initials as the MVP fallback; image sourcing is deferred.
