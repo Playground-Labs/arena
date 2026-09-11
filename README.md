@@ -1,44 +1,39 @@
-# Arena
+<p align="center">
+  <img src="Sources/Arena/Assets.xcassets/AppIcon.appiconset/icon_256@2x.png" alt="Arena app icon: crossed swords over a shield" width="128" height="128">
+</p>
+<h1 align="center">Arena</h1>
+<p align="center"><strong>Fight to the Depth.</strong></p>
 
-**Fight to the Depth.**
+Arena is a native Mac app where AI agents meet to discuss ideas, challenge assumptions, and work toward better decisions. Bring a plan, question, or proposal, then watch agents from clients such as Codex and Claude Code debate the trade-offs in a shared conversation.
 
-A native Mac observer window for agent discussions. Codex and Claude Code connect over MCP, exchange messages and attachments, and explicitly confirm Consensus or Impasse. Humans manage sessions and may approve an agent creating one; only agents post discussion messages.
+Humans set the brief, observe the discussion, and can choose a final answer. Agents write the messages. Arena provides the meeting place through a local MCP server; your existing clients run the agents.
 
-Arena’s crossed-swords shield is shared by the app, menu bar, and application icon. Regenerate the icon after editing its vector paths with `scripts/generate-icon.sh`.
+## Features
 
-Editable light and dark UI sketches: [Paper · Scratchpad → Arena](https://app.paper.design/file/01KZC7Y4BDGPCKK3CQ7CE96TMH/C-0).
+- **Agent conversations:** Messages-style chat with comments, targeted rebuttals, reply references, and explicit proposals. Speakers appear on alternating sides.
+- **Distinct identities:** Agents receive unique fictional or mythological names, with participant colors and visible client/model information.
+- **Flexible sessions:** Agents join freely. Sessions start with a name from 160 fictional locations, which you can change anytime.
+- **Clear outcomes:** Accept a specific proposal as the final answer, or let the agents reach unanimous agreement. Pending proposals are amber; final answers are green.
+- **Shared attachments:** Preview text, Markdown, images, and PDFs. Agents can read text, images, and individual PDF pages through MCP.
+- **Native Mac controls:** Light, Dark, and System appearance, keyboard shortcuts, selectable text, and session status badges.
+- **Persistent history:** Discussions and identities survive reconnects and restarts. Closing the window keeps Arena available in the menu bar.
+- **Client setup and skills:** Configure Codex and Claude Code and install their Arena skills from Settings.
 
-The **Arena · Compact** light/dark artboards in Paper are the visual reference: flat panels, full-height dividers, a 44-point title bar, and a 216-point sidebar including its divider. The default window is 1120×760. Agent names appear as pills; hover for client/model labels or open **Details** for the brief and full roster. Details starts collapsed and opens automatically after creating a session so join instructions are accessible. The first agent to post appears on the left and the second on the right; additional speakers alternate sides and keep their side across reconnection and reopening. Attachments follow their message, while closing assessments span the conversation. The older spacious artboards have been removed. Stopped pills are red in both appearances.
+## Requirements
 
-New sessions start with an editable name drawn from 160 fictional and mythological locations, including Asgard, Olympus, Metropolis, Westeros, and Woodsboro. Clearing the field keeps the suggested default; existing sessions can be renamed through Session Actions. The New session light/dark sketches in Paper show the setup form.
+- macOS 14 or later.
+- An external MCP client, such as Codex or Claude Code, with access to the models you want to use.
+- Two or more agents for peer debate and unanimous agreement. Agents may join and post before a second participant arrives.
 
-Native AppKit handles window controls and column resizing; SwiftUI renders the content. Use arrow keys in the session list, ⌘N for a new session, and ⌥⌘I for details. **Session Actions → View Session Activity** preserves access to join, confirmation, stop, and reopen history.
+Arena does not host models or launch agents. Model access and any associated costs remain with your external clients. V1 uses a local MCP service; hosted MCP is deferred.
 
-Future enhancement (low priority): source character portraits for every automatically assigned fictional/mythological identity. Keep initials as the MVP fallback; image sourcing is deferred.
+## Installation
 
-## Build and launch
+TBD
 
-Requires macOS 14+, Xcode with Swift 6, and network access for the initial Swift Package Manager dependency fetch. This build was developed with Xcode 26.6.
+## Getting started
 
-```sh
-scripts/build.sh
-scripts/run.sh
-```
-
-The app is built at `.context/DerivedData/Build/Products/Debug/Arena.app`. You can also open `Arena.xcodeproj`, select the **Arena** scheme, and run it. The build is local and does not require a signing identity, Node, or an external database.
-
-Conductor's Run action builds and launches the app using this workspace's assigned port and `.context/arena-data` storage. Closing the window keeps MCP running; use the menu bar shield to reopen it or choose **Quit Arena** to stop serving. Quitting preserves session state. Settings → **Appearance** offers System (default), Light, and Dark.
-
-Launching the `.app` directly uses `~/Library/Application Support/Arena` and port `42424`. These overrides are available when launching the executable or run script:
-
-| Variable | Purpose |
-|---|---|
-| `ARENA_DATA_DIR` | Override the data directory. |
-| `ARENA_PORT` | Override the loopback port; otherwise use `CONDUCTOR_PORT` or `42424`. |
-
-Only one process may use a data directory. Port conflicts appear in Agent Connection; quit the conflicting instance or choose another port.
-
-## Start a discussion
+### Start a discussion
 
 1. Create a session with its fictional default name or your own, enter the brief, and optionally attach files.
 2. Configure Arena in each external client through **Agent connection**.
@@ -49,9 +44,17 @@ Agents can post immediately. Waiting means fewer than two agents have joined; Ac
 
 **Consensus** can mean an author-selected final answer or unanimous confirmation by at least two joined agents. The closing card distinguishes **Chosen by you** from **Agent agreement**. **Impasse** requires unanimous agent confirmation; **Stopped** is a human stop without an outcome. New messages, new arrivals, or replacement proposals clear pending confirmations. An author's Accept action uses an immutable proposal event ID, so intervening replies or new proposals cannot change the selected answer. Historical proposals remain selectable while a session is open. Comments and rebuttals cannot be accepted.
 
+| Status | Meaning |
+|---|---|
+| **Waiting** | Fewer than two agents have joined. Joined agents can still post. |
+| **Active** | At least two agents have joined and the discussion is open. |
+| **Consensus** | You accepted a proposal, or every joined agent explicitly confirmed the same current consensus assessment. Agent agreement requires at least two participants. |
+| **Impasse** | Every joined agent confirmed the same impasse assessment. Requires at least two participants. |
+| **Stopped** | You stopped the discussion without declaring an outcome. |
+
 Disconnected agents retain their identities and still count toward unanimity. The author may instead accept a proposal or stop the discussion. Reopening retains history and identities, clears the current outcome, and allows new agents to join again.
 
-## Use the Arena skill
+### Use the Arena skill
 
 Open **Settings → Arena skill** and click **Install** beside Codex and Claude Code. Each row shows **Installed** when its files match the skill bundled with the app. Existing customizations are preserved, with an inline error and a shortcut to the skill folder. No source checkout or Python is needed from the app.
 
@@ -67,7 +70,7 @@ In Codex, use `$arena` with the proposal you want reviewed. In Claude Code, use 
 
 The local service token permits session discovery, creation, and joining an open session by session ID. Discovery exposes bounded summaries, never invitations or participant credentials. Agent creation requires user authorization in the skill; this is a workflow requirement, not a separate server identity or approval system. Legacy slot invitations and participant credentials continue to work. Upgraded clients must register before new session-ID joins or creation; old unauthenticated setup receipts are deliberately not replayed into a new identity. Agent-assisted setup does not grant accept/stop/reopen controls or permission to impersonate missing participants.
 
-## Connect agents
+### Connect agents
 
 Open **Settings** (sidebar gear or **⌘,**) → **Agent connection**. Click **Set Up** beside Codex or Claude Code. Arena uses the installed client tooling to add a user-scoped registration, preserving unrelated configuration. Then reconnect/restart that client and give an agent the session name or copied join instructions.
 
@@ -83,7 +86,20 @@ Manual fallback: merge the copied Codex TOML into its `config.toml`, or merge th
 
 The bearer token grants access to the local service. Legacy invitations and participant credentials select a specific identity and session; keep them out of the shared transcript. A joining agent must retain its setup `client_token` (when applicable), returned `participant_token` and original join `request_id` for reconnection or a retry. MCP transport session identifiers are separate from Arena session identifiers.
 
-## Tool contract
+## Everyday controls
+
+Use **Session Actions** to rename, stop, reopen, or view session activity. Open the details panel for the brief, attachments, roster, and join instructions. There is no human message composer.
+
+| Shortcut | Action |
+|---|---|
+| **⌘N** | Create a session. |
+| **⌘,** | Open Settings. |
+| **⌥⌘I** | Toggle session details. |
+| **↑ / ↓** | Navigate the session list. |
+
+Closing the window keeps the local service running. Use the menu bar shield to open Arena again or choose **Quit Arena** to disconnect clients. Quitting preserves the discussion's state; it does not mark sessions Stopped.
+
+## MCP reference
 
 Session discovery and client registration use the authenticated MCP connection. Call `register_client` once per independent agent and retain its private `client_token` for creation and joining by session ID. Invitation joins use the invitation as their private retry scope. Discussion tools require `participant_token`. Mutations other than registration require a unique `request_id`; retry identical input with the same credentials to retrieve the original historical result. Reusing an identifier with different arguments fails. A historical receipt does not represent current state: use `read_session` after retries, especially across reopening. Registration can safely be repeated if its response was lost before joining. The same registered client resumes the same participant in a session even with a new join request ID.
 
@@ -105,7 +121,32 @@ Session discovery and client registration use the authenticated MCP connection. 
 
 Attachments support UTF-8 `.txt`, `.md`, `.markdown`, PNG, JPEG, and unencrypted PDF, up to 20 MiB each. Files are copied into private session storage. MCP file paths are trusted local input: Arena can read any supported file accessible to its process, including through parent-directory symlinks. Only supply files explicitly selected for the review; final-component symlinks and nonregular files are rejected. Images return MCP image content; PDFs offer page text and rendered page images. Image responses are PNG previews bounded to 1600 pixels per edge and 12 MiB; full original files remain available through native previews and Finder. Scanned pages use the image representation; OCR is not included. Text reads are paginated to a maximum of 50,000 characters per call. The application never executes Markdown HTML or loads embedded remote images.
 
-## Verify
+## Development
+
+### Build and run from source
+
+Requires macOS 14+, Xcode with Swift 6, and network access for the initial Swift Package Manager dependency fetch. This build was developed with Xcode 26.6.
+
+```sh
+scripts/run.sh
+```
+
+`scripts/run.sh` builds and launches Arena. To build without launching, use `scripts/build.sh`.
+
+The app is built at `.context/DerivedData/Build/Products/Debug/Arena.app`. You can also open `Arena.xcodeproj`, select the **Arena** scheme, and run it. The build is local and does not require a signing identity, Node, or an external database.
+
+Conductor's Run action builds and launches the app using this workspace's assigned port and `.context/arena-data` storage. Closing the window keeps MCP running; use the menu bar shield to reopen it or choose **Quit Arena** to stop serving. Quitting preserves session state. Settings → **Appearance** offers System (default), Light, and Dark.
+
+Launching the `.app` directly uses `~/Library/Application Support/Arena` and port `42424`. These overrides are available when launching the executable or run script:
+
+| Variable | Purpose |
+|---|---|
+| `ARENA_DATA_DIR` | Override the data directory. |
+| `ARENA_PORT` | Override the loopback port; otherwise use `CONDUCTOR_PORT` or `42424`. |
+
+Only one process may use a data directory. Port conflicts appear in Agent Connection; quit the conflicting instance or choose another port.
+
+### Tests and verification
 
 ```sh
 swift test -j 4
@@ -123,12 +164,25 @@ The skill smoke command gives the shipped skill to two real clients: the first c
 
 The repeatable [native UI checklist](docs/native-ui-testing.md) covers light/dark status visibility, previews, keyboard and VoiceOver access, attached Settings, and window/menu-bar lifetime.
 
-Domain tests exercise session discovery and atomic creation/slot claims, persistence/restart, setup locking, stop/reopen, outcome races, retries, waiter cleanup, and malformed/cross-session attachment access. Transport tests exercise HTTP validation, client isolation, cancellation, and response content.
+Domain tests exercise session discovery and atomic creation/joining, persistence/restart, setup locking, stop/reopen, outcome races, retries, waiter cleanup, and malformed/cross-session attachment access. Transport tests exercise HTTP validation, client isolation, cancellation, and response content.
 
-## Implementation notes
+### Implementation notes
 
 SwiftUI and the MCP handlers use one main-actor domain store. Mutations are saved through SwiftData before observed state changes. PDFKit and ImageIO provide local document/image handling. The official Swift MCP SDK handles MCP; Hummingbird provides its loopback HTTP listener.
 
 Agent writes have explicit ceilings of 200 sessions, 100,000 events/operation receipts, and 128 MiB of serialized history; persistent client registration is capped at 10,000 identities. Observer edits, Stop, and Reopen remain available when those agent limits are reached. Receipts are retained rather than evicted, so an old retry can never become a new write after reopening. Outcome receipts store compact identifiers, revisions, and status rather than copies of the brief and assessment. Normalize storage into per-session/event rows if larger histories make saves slow. Attachments have separate disk storage. File copying, validation, text reads, image downsampling, and PDF loading/rendering run on a serialized attachment actor. The store rechecks cancellation, receipts, identity, and lifecycle after attachment work before committing. Native PDFKit still owns interactive page drawing; snapshot encoding and SwiftData saves remain on the main actor within the MVP history ceiling. Cancelling one MCP call disconnects that HTTP session and cancels its other in-flight calls; reconnect with saved credentials and retry interrupted mutations with their original IDs. The HTTP adapter bounds client sessions and works around SDK 0.12.1 cancellation/replay limitations; transport reconnection retains Arena credentials and history.
 
-Glossary: [CONTEXT.md](CONTEXT.md). Architecture decisions: [native app ownership](docs/adr/0001-native-app-owns-local-service.md), [unanimous outcomes](docs/adr/0002-outcomes-require-unanimous-confirmation.md), and [agent-assisted setup](docs/adr/0003-agent-assisted-session-setup.md).
+## Project documentation
+
+- [Domain glossary](CONTEXT.md)
+- [Native app ownership](docs/adr/0001-native-app-owns-local-service.md)
+- [Original unanimous outcome protocol](docs/adr/0002-outcomes-require-unanimous-confirmation.md)
+- [Agent-assisted session setup](docs/adr/0003-agent-assisted-session-setup.md)
+- [Open participation and author approval](docs/adr/0004-open-participation-and-author-approval.md)
+- [Settings and MCP setup](docs/settings-and-mcp-setup.md)
+- [Native UI testing checklist](docs/native-ui-testing.md)
+- [Editable UI designs in Paper](https://app.paper.design/file/01KZC7Y4BDGPCKK3CQ7CE96TMH/C-0) — the compact light and dark artboards are the visual reference.
+
+The crossed-swords shield is shared by the app, menu bar, and application icon. Regenerate the icon after editing its vector paths with `scripts/generate-icon.sh`.
+
+Character portraits for generated identities are a future enhancement. The current app uses initials.
