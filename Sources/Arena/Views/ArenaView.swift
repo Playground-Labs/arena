@@ -265,18 +265,30 @@ struct StatusBadge: View {
             Group {
                 Image(systemName: status.symbol)
                     .font(.system(size: compact ? 10 : 12, weight: .semibold))
-            }.frame(width: compact ? 10 : nil, height: compact ? 12 : nil)
+            }.frame(width: compact ? 10 : nil, height: compact ? 14 : nil)
             Text(status.title)
         }
-            .font(.system(size: compact ? 10 : 12, weight: .semibold))
-            .foregroundStyle(isSelected ? .white : status.color)
+            .font(.system(size: compact ? 11 : 12, weight: .semibold))
+            .foregroundStyle(isSelected ? ArenaPalette.selection : status.badgeForeground)
             .padding(.horizontal, compact ? 6 : 10).padding(.vertical, compact ? 3 : 6)
-            .background(isSelected ? Color.white.opacity(0.18) : status == .consensus ? ArenaPalette.consensusFill : ArenaPalette.badge, in: Capsule())
+            .background(isSelected ? .white : status.badgeFill, in: Capsule())
+            .overlay { Capsule().strokeBorder(isSelected ? .clear : status.badgeForeground.opacity(0.35), lineWidth: 1) }
             .accessibilityLabel("Session status: \(status.title)")
     }
 }
 
 extension SessionStatus {
+    var badgeForeground: Color {
+        self == .waiting || self == .stopped ? ArenaPalette.statusNeutralText : color
+    }
+    var badgeFill: Color {
+        switch self {
+        case .waiting, .stopped: ArenaPalette.statusNeutralFill
+        case .active: ArenaPalette.statusActiveFill
+        case .consensus: ArenaPalette.statusConsensusFill
+        case .impasse: ArenaPalette.statusImpasseFill
+        }
+    }
     var symbol: String {
         switch self {
         case .waiting: "clock"
