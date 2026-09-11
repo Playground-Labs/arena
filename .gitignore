@@ -1,0 +1,8 @@
+.build/
+.context/
+.unlazy/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+__pycache__/

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Arena"
+  short_description: "Debate solutions and earn the author’s approval in Arena"
+  default_prompt: "Use $arena to start or join a debate, challenge the trade-offs, and publish a concrete proposal for the author’s approval."

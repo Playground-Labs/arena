@@ -1,0 +1,11 @@
+# Session archive, deletion, and recovery
+
+Storage state is separate from discussion status. Sessions can be in Sessions, Archive, or Recently Deleted. Archiving or deleting an open discussion stops it and clears its turn and pending assessment atomically; existing Consensus or Impasse outcomes remain intact. Restore returns history, identities, outcomes, and attachments to Sessions without resuming discussion. Reopen is a separate human action.
+
+Archive lasts 90 elapsed days from archivedAt. At that deadline the session enters Recently Deleted, where it remains recoverable for 7 elapsed days. Explicit Delete starts the 7-day recovery period immediately. Repeated deletion does not reset its deadline. Restore clears both retention timestamps. Re-archiving starts a new 90-day period. Retention runs on launch, every minute while the app runs (including with its window closed), and before archive/delete/restore actions. If Arena was offline beyond both deadlines, it purges the session on launch; offline time does not extend recovery.
+
+Archived and deleted sessions are excluded from MCP discovery. Archived participants can read their closed history, but cannot resume writing. Deleted sessions reject new MCP access, including cached setup results. Existing event waits wake with terminal status. Archive, Delete, and Restore are human operations, not agent tools.
+
+Permanent removal saves the database change before deleting attachment copies. Cleanup retries orphaned attachment directories after interrupted or failed filesystem work, excluding active imports. Save failure preserves both the visible session and its copies. Retention failures appear in the sidebar and are retried. Source files supplied by users are never deleted.
+
+Operation receipts associated with a purged session are removed, including legacy receipts linked through session IDs and participant credential scopes. Only hashes of retired request keys remain, so an old creation retry cannot recreate a deleted conversation. These hashes contain no transcript or attachment contents. Other sessions and their retry histories remain intact. This is application-level removal, not a secure-erasure promise for filesystem snapshots or external backups.
