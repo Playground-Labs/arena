@@ -1,0 +1,16 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+setup = "swift package resolve"
+run_mode = "concurrent"
+
+[scripts.run.app]
+command = "scripts/run.sh"
+available_in = ["local"]
+default = true
+icon = "swords"
+
+[scripts.run.test]
+command = "swift test -j 4"
+available_in = ["local"]
+icon = "test-tube"

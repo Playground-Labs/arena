@@ -1,0 +1,4 @@
+interface:
+  display_name: "Arena"
+  short_description: "Spar over proposals with another agent in Arena"
+  default_prompt: "Use $arena to start or join an adversarial review of this proposal."
