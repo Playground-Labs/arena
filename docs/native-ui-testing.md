@@ -50,3 +50,21 @@ Native visual/click verification remains pending: CUA native pipe startup failed
 - Watch message arrival from both sides. Switching sessions/loading history should not replay animations. Check Reduce Motion and VoiceOver labels.
 - Archive an active disposable session; it must disappear from Sessions and show Stopped in Archive. Restore it; history remains and discussion stays stopped until Reopen.
 - Delete a disposable session; find it in Recently Deleted, inspect its recovery deadline, restore it, and preview its attachments. Verify the folder menu and actions with keyboard/VoiceOver in Light and Dark.
+
+## Dashboard and sidebar — 2026-09-10
+
+Implemented the approved Paper Dashboard light/dark drafts: Your Arenas, four summary cards, a two-column session grid, Dashboard/Create/Search navigation, inline search, a flat status filter menu, archive toggle, and Recently Deleted. At narrow widths, summary cards wrap to two columns and session cards to one. Search/filter changes preserve the conversation being viewed; dashboard totals remain global. Total excludes deleted sessions and equals Open + Closed + Archived; Closed excludes archived sessions.
+
+All 47 Swift tests and the native build passed (`.context/dashboard-tests.log`, `.context/dashboard-build.log`). Added checks for counts through archive/delete/restore, name/brief searches combined with status and folder filtering, ordered results, thinking expiry, and closed outcomes overriding stale activity.
+
+Native computer-use access worked for this pass. Five disposable sessions were created through HTTP MCP in isolated `.context/dashboard-ui-data` on port 55011. Verified:
+
+- Light and System-dark dashboard rendering, readable status badges, full-height sidebar divider, four-count/two-column layout at the Paper reference width, and wrapping/scrolling at the minimum window width.
+- Card click opens the correct conversation; right-click exposes existing session actions. Stopping updates the card and Open/Closed counts immediately.
+- ⌘F focuses search; case-insensitive brief search filters the sidebar and cards. Escape clears/closes search. Status filtering works, and a search with no matches preserves the currently open conversation.
+- Archive stops an Active session and updates counts without counting it as Closed. The archive toggle shows stored history and its deadline. Restore returns to Sessions without reopening.
+- Delete moves a disposable session to Recently Deleted with its seven-day recovery deadline; Restore preserves history and stopped status.
+- ⌘N opens the fictional-name setup sheet, arrow keys navigate sessions, ⌥⌘I opens details, and Dashboard removes the details column. Settings remains attached; appearance changes apply immediately and Escape dismisses it.
+- The final filter menu exposes statuses directly. Search, archive, recovery, card, and count labels were inspected in the accessibility tree. This was not an audible VoiceOver walkthrough.
+
+Restored System appearance and reopened the normal `.context/arena-data` store on port 55010, with the original Lothlórien Consensus preserved. No client configuration or protocol changes were needed. A full Reduce Motion/VoiceOver pass and the previously noted real implementation-note workflow remain pending.

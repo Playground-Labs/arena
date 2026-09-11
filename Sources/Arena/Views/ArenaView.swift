@@ -8,6 +8,10 @@ struct ArenaView: View {
     @Bindable var setup: ClientSetup
     @State private var selection: String?
     @State private var folder: SessionFolder = .sessions
+    @State private var search = ""
+    @State private var statusFilter: SessionStatus?
+    @State private var showingSearch = false
+    @FocusState private var searchFocused: Bool
     @State private var showingDetails = false
     @State private var showingActivity = false
     @FocusState private var sessionListFocused: Bool
@@ -17,13 +21,14 @@ struct ArenaView: View {
     @State private var preview: AttachmentSelection?
 
     private var selected: ArenaSession? { store.sessions.first { $0.id == selection } }
+    private var isDashboard: Bool { selection == nil && folder == .sessions }
 
     var body: some View {
         ArenaColumns(sidebar: AnyView(sidebarColumn), content: AnyView(conversationColumn),
                      details: showingDetails && selected != nil ? AnyView(detailsColumn) : nil)
         .ignoresSafeArea()
         .font(.system(size: 13)).foregroundStyle(ArenaPalette.text)
-        .navigationTitle(selected?.name ?? "Arena")
+        .navigationTitle(selected?.name ?? (isDashboard ? "Dashboard" : folder.title))
         .sheet(isPresented: $showingActivity) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Session activity").font(.title2.bold())
@@ -40,6 +45,7 @@ struct ArenaView: View {
             SessionEditor(session: nil) { name, brief, files in
                 selection = try await store.createSession(name: name, brief: brief, files: files)
                 folder = .sessions
+                clearFilters()
                 showingDetails = true
             }
         }
@@ -57,10 +63,8 @@ struct ArenaView: View {
         .alert("Arena couldn’t complete that action", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK") { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
-        .onAppear { if selection == nil { selection = sortedSessions.first?.id } }
-        .onChange(of: folder) { _, _ in selection = sortedSessions.first?.id }
-        .onChange(of: sortedSessions.map(\.id)) { _, ids in
-            if let selection, !ids.contains(selection) { self.selection = ids.first }
+        .onChange(of: store.sessions.filter { folder.contains($0) }.map(\.id)) { _, ids in
+            if let selection, !ids.contains(selection) { self.selection = nil }
         }
     }
 
@@ -81,7 +85,10 @@ struct ArenaView: View {
     private var conversationColumn: some View {
         VStack(spacing: 0) {
             windowHeader
-            if let session = selected {
+            if isDashboard {
+                SessionDashboard(sessions: store.sessions, search: search, status: statusFilter,
+                                 open: { selection = $0.id }, actions: { sessionMenuItems($0) })
+            } else if let session = selected {
                 if session.isStoredAway { retentionBanner(session) }
                 ConversationView(session: session, accept: { eventID in
                     perform { try store.acceptAnswer(session.id, eventID: eventID) }
@@ -134,14 +141,11 @@ struct ArenaView: View {
                 }.fixedSize()
                 Spacer(minLength: 0)
                 Text("\(sortedSessions.count)").font(.system(size: 10)).foregroundStyle(ArenaPalette.secondary)
-                    .accessibilityLabel("\(sortedSessions.count) sessions")
+                    .accessibilityLabel("\(sortedSessions.count) \(sortedSessions.count == 1 ? "session" : "sessions")")
             }
             .padding(.horizontal, 16).frame(height: 56)
-            Picker("Session folder", selection: $folder) {
-                ForEach(SessionFolder.allCases, id: \.self) { folder in Text(folder.rawValue).tag(folder) }
-            }
-            .pickerStyle(.menu).labelsHidden().padding(.horizontal, 12).padding(.bottom, 8)
-            .accessibilityLabel("Session folder")
+            sidebarNavigation
+            sessionListHeader
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(sortedSessions) { session in
@@ -162,18 +166,33 @@ struct ArenaView: View {
                             sessionMenuItems(session)
                         }
                     }
+                    if sortedSessions.isEmpty {
+                        Text(search.isEmpty && statusFilter == nil ? "No sessions" : "No matching sessions")
+                            .font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                    }
                 }.padding(.horizontal, 8).padding(.vertical, 4)
             }
             .focusable().focused($sessionListFocused).focusEffectDisabled()
             .onMoveCommand { direction in
                 guard direction == .up || direction == .down, !sortedSessions.isEmpty else { return }
-                let current = sortedSessions.firstIndex { $0.id == selection } ?? 0
-                selection = sortedSessions[min(max(current + (direction == .up ? -1 : 1), 0), sortedSessions.count - 1)].id
+                if let current = sortedSessions.firstIndex(where: { $0.id == selection }) {
+                    selection = sortedSessions[min(max(current + (direction == .up ? -1 : 1), 0), sortedSessions.count - 1)].id
+                } else { selection = (direction == .up ? sortedSessions.last : sortedSessions.first)?.id }
             }
-            .accessibilityLabel("Sessions")
+            .accessibilityLabel(folder.title)
             if let error = store.retentionError {
                 Text(error).font(.caption).foregroundStyle(.red).padding(12).textSelection(.enabled)
             }
+            Button { selectFolder(.deleted) } label: {
+                sidebarLabel("Recently Deleted", icon: "trash")
+                    .font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary)
+                    .frame(height: 36)
+                    .background(folder == .deleted ? ArenaPalette.navigationSelection : .clear,
+                                in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(ArenaKeyboardButtonStyle()).padding(.horizontal, 8)
+            .accessibilityAddTraits(folder == .deleted ? .isSelected : [])
             VStack(spacing: 0) {
                 ArenaPalette.divider.frame(height: 1)
                 HStack(spacing: 0) {
@@ -197,9 +216,94 @@ struct ArenaView: View {
         }
     }
 
+    private var sidebarNavigation: some View {
+        VStack(spacing: 2) {
+            Button { folder = .sessions; selection = nil; clearFilters() } label: {
+                sidebarLabel("Dashboard", icon: "square.grid.2x2")
+                    .frame(height: 32)
+                    .background(isDashboard ? ArenaPalette.navigationSelection : .clear,
+                                in: RoundedRectangle(cornerRadius: 6))
+            }
+            .accessibilityAddTraits(isDashboard ? .isSelected : [])
+            Button { showingNewSession = true } label: {
+                sidebarLabel("Create session", icon: "plus", shortcut: "⌘N").frame(height: 32)
+            }.keyboardShortcut("n")
+            Button {
+                showingSearch = true
+                searchFocused = true
+            } label: {
+                sidebarLabel("Search sessions", icon: "magnifyingglass", shortcut: "⌘F").frame(height: 32)
+            }.keyboardShortcut("f")
+            if showingSearch {
+                HStack(spacing: 6) {
+                    TextField("Name or brief", text: $search)
+                        .textFieldStyle(.plain).focused($searchFocused)
+                        .onAppear { searchFocused = true }
+                        .accessibilityLabel("Search sessions by name or brief")
+                        .onExitCommand { search = ""; showingSearch = false; searchFocused = false }
+                    Button { search = ""; showingSearch = false; searchFocused = false } label: {
+                        Image(systemName: "xmark").frame(width: 20, height: 24)
+                    }.accessibilityLabel("Close search").help("Close search (Escape)")
+                }
+                .padding(.horizontal, 8).frame(height: 32)
+                .background(ArenaPalette.panel, in: RoundedRectangle(cornerRadius: 6))
+                .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(searchFocused ? ArenaPalette.dashboardAccent : ArenaPalette.divider) }
+            }
+        }
+        .font(.system(size: 12)).buttonStyle(ArenaKeyboardButtonStyle())
+        .padding(.horizontal, 8).padding(.bottom, 12)
+    }
+
+    private func sidebarLabel(_ title: String, icon: String, shortcut: String? = nil) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(ArenaPalette.secondary)
+                .frame(width: 16, height: 16).accessibilityHidden(true)
+            Text(title).lineLimit(1)
+            Spacer(minLength: 0)
+            if let shortcut {
+                Text(shortcut).font(.system(size: 10)).foregroundStyle(ArenaPalette.secondary)
+                    .frame(width: 24).accessibilityHidden(true)
+            }
+        }.padding(.horizontal, 10).contentShape(Rectangle())
+    }
+
+    private var sessionListHeader: some View {
+        HStack(spacing: 2) {
+            Text(folder.title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+            Spacer(minLength: 0)
+            Menu {
+                Picker("Session status", selection: $statusFilter) {
+                    Text("All statuses").tag(nil as SessionStatus?)
+                    ForEach([SessionStatus.waiting, .active, .consensus, .impasse, .stopped], id: \.self) { status in
+                        Text(status.title).tag(Optional(status))
+                    }
+                }.pickerStyle(.inline)
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease").frame(width: 26, height: 28)
+                    .foregroundStyle(statusFilter == nil ? ArenaPalette.secondary : ArenaPalette.dashboardAccent)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .tint(statusFilter == nil ? ArenaPalette.secondary : ArenaPalette.dashboardAccent)
+            .modifier(ArenaHoverFeedback()).help("Filter sessions by status")
+            .accessibilityLabel("Filter sessions").accessibilityValue(statusFilter?.title ?? "All statuses")
+            Button { selectFolder(folder == .archive ? .sessions : .archive) } label: {
+                Image(systemName: "archivebox").frame(width: 26, height: 28)
+                    .foregroundStyle(folder == .archive ? ArenaPalette.dashboardAccent : ArenaPalette.secondary)
+                    .background(folder == .archive ? ArenaPalette.navigationSelection : .clear,
+                                in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(ArenaKeyboardButtonStyle())
+            .accessibilityLabel(folder == .archive ? "Show sessions" : "Show archived sessions")
+            .accessibilityAddTraits(folder == .archive ? .isSelected : [])
+            .help(folder == .archive ? "Show sessions" : "Show archived sessions")
+        }
+        .font(.system(size: 14)).foregroundStyle(ArenaPalette.secondary)
+        .padding(.leading, 18).padding(.trailing, 12).frame(height: 36)
+    }
+
     private var windowHeader: some View {
         HStack(spacing: 10) {
-            Text(selected?.name ?? "Arena").font(.system(size: 13, weight: .semibold)).foregroundStyle(ArenaPalette.text).lineLimit(1)
+            Text(selected?.name ?? (isDashboard ? "Dashboard" : folder.title)).font(.system(size: 13, weight: .semibold)).foregroundStyle(ArenaPalette.text).lineLimit(1)
             Spacer(minLength: 12)
             if !showingDetails || selected == nil {
                 sessionActions
@@ -214,14 +318,19 @@ struct ArenaView: View {
     }
 
     private var sortedSessions: [ArenaSession] {
-        store.sessions.filter { folder.contains($0) }.sorted { $0.updatedAt > $1.updatedAt }
+        folder.sessions(in: store.sessions, search: search, status: statusFilter)
+    }
+
+    private func clearFilters() { search = ""; statusFilter = nil }
+
+    private func selectFolder(_ destination: SessionFolder) {
+        folder = destination
+        clearFilters()
+        selection = sortedSessions.first?.id
     }
 
     private var sessionActions: some View {
         HStack(spacing: 10) {
-            Button { showingNewSession = true } label: { Image(systemName: "plus").frame(width: 28, height: 28).contentShape(Rectangle()) }
-                .buttonStyle(ArenaKeyboardButtonStyle())
-                .keyboardShortcut("n").help("New Session").accessibilityLabel("New Session")
             if let session = selected {
                 Menu {
                     sessionMenuItems(session)
@@ -261,7 +370,7 @@ struct ArenaView: View {
     }
 
     private func restore(_ session: ArenaSession) {
-        perform { try store.restoreSession(session.id); folder = .sessions; selection = session.id }
+        perform { try store.restoreSession(session.id); folder = .sessions; clearFilters(); selection = session.id }
     }
 
     private func retentionBanner(_ session: ArenaSession) -> some View {
@@ -295,12 +404,21 @@ struct ArenaView: View {
 
 enum SessionFolder: String, CaseIterable {
     case sessions = "Sessions", archive = "Archive", deleted = "Recently Deleted"
+    var title: String { self == .archive ? "Archived sessions" : rawValue }
     func contains(_ session: ArenaSession) -> Bool {
         switch self {
         case .sessions: !session.isStoredAway
         case .archive: session.archivedAt != nil && session.deletedAt == nil
         case .deleted: session.deletedAt != nil
         }
+    }
+
+    func sessions(in sessions: [ArenaSession], search: String = "", status: SessionStatus? = nil) -> [ArenaSession] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sessions.filter {
+            contains($0) && (status == nil || $0.status == status) &&
+            (query.isEmpty || $0.name.localizedStandardContains(query) || $0.brief.localizedStandardContains(query))
+        }.sorted { $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }
     }
 }
 

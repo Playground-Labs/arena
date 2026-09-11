@@ -2,6 +2,53 @@ import XCTest
 @testable import Arena
 
 final class PresentationTests: XCTestCase {
+    func testDashboardCountsAndFolderSearchStayConsistentThroughRetention() {
+        let now = Date(timeIntervalSince1970: 200_000)
+        var sessions = [SessionStatus.active, .waiting, .consensus, .impasse, .stopped].enumerated().map { index, status in
+            ArenaSession(id: "\(index)", name: index == 0 ? "Olympus" : "Review \(index)",
+                         brief: index == 2 ? "Refresh tokens" : "Plan", status: status, revision: 0,
+                         createdAt: now, updatedAt: now.addingTimeInterval(Double(index)), participants: [], events: [], attachments: [])
+        }
+        var summary = SessionSummary(sessions: sessions)
+        XCTAssertEqual([summary.total, summary.open, summary.closed, summary.archived, summary.active, summary.waiting], [5, 2, 3, 0, 1, 1])
+        XCTAssertEqual(SessionFolder.sessions.sessions(in: sessions).map(\.id), ["4", "3", "2", "1", "0"])
+        XCTAssertEqual(SessionFolder.sessions.sessions(in: sessions, search: "  OLYMPUS \n").map(\.id), ["0"])
+        XCTAssertEqual(SessionFolder.sessions.sessions(in: sessions, search: "tokens", status: .consensus).map(\.id), ["2"])
+        XCTAssertTrue(SessionFolder.sessions.sessions(in: sessions, search: "tokens", status: .active).isEmpty)
+
+        // Archive stops a discussion; archived and deleted records must not inflate Closed.
+        sessions[0].status = .stopped
+        sessions[0].archivedAt = now
+        sessions[4].deletedAt = now
+        summary = SessionSummary(sessions: sessions)
+        XCTAssertEqual([summary.total, summary.open, summary.closed, summary.archived], [4, 1, 2, 1])
+        XCTAssertEqual(summary.total, summary.open + summary.closed + summary.archived)
+        XCTAssertEqual(SessionFolder.archive.sessions(in: sessions, search: "olympus").map(\.id), ["0"])
+        XCTAssertEqual(SessionFolder.deleted.sessions(in: sessions).map(\.id), ["4"])
+        sessions[0].deletedAt = now.addingTimeInterval(ArenaSession.archiveLifetime)
+        XCTAssertTrue(SessionFolder.archive.sessions(in: sessions).isEmpty)
+        sessions[0].archivedAt = nil
+        sessions[0].deletedAt = nil
+        summary = SessionSummary(sessions: sessions)
+        XCTAssertEqual([summary.total, summary.open, summary.closed, summary.archived], [4, 1, 3, 0])
+        XCTAssertEqual(SessionFolder.sessions.sessions(in: sessions, status: .stopped).map(\.id), ["0"])
+    }
+
+    func testDashboardThinkingExpiresAndClosedStatusOverridesAnOldTurn() {
+        let now = Date(timeIntervalSince1970: 200_000)
+        let participant = Participant(id: "peer", name: "Athena", invitation: "", credential: "", index: 0, joinedAt: now)
+        var session = ArenaSession(id: "session", name: "Review", brief: "Plan", status: .active, revision: 0,
+                                   createdAt: now, updatedAt: now, participants: [participant], events: [], attachments: [])
+        XCTAssertEqual(session.dashboardActivity(at: now), "Ready for the next turn")
+        session.turn = DiscussionTurn(participantID: participant.id, updatedAt: now)
+        XCTAssertEqual(session.dashboardActivity(at: now.addingTimeInterval(119)), "Athena is thinking…")
+        XCTAssertEqual(session.dashboardActivity(at: now.addingTimeInterval(120)), "Athena holds the turn")
+        session.turn?.phase = .offered
+        XCTAssertEqual(session.dashboardActivity(at: now), "Waiting for Athena")
+        session.status = .consensus
+        XCTAssertEqual(session.dashboardActivity(at: now), "Final answer reached")
+    }
+
     @MainActor
     func testCompactPaperColumnWidthsSurviveResizeAndDetailsToggle() {
         let columns = ArenaColumns.ColumnsView()
