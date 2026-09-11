@@ -139,7 +139,7 @@ private struct ArenaMenu: View {
     let runtime: ArenaRuntime
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        Text(runtime.service?.state ?? "Service unavailable")
+        Text(runtime.service?.state == "Listening" ? "Active" : runtime.service?.state ?? "Service unavailable")
         Button("Open Arena") {
             if let window = NSApplication.shared.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
                 window.makeKeyAndOrderFront(nil)

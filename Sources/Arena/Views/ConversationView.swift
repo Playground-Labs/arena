@@ -6,6 +6,7 @@ struct ConversationView: View {
     let preview: (Attachment) -> Void
 
     var body: some View {
+        let rightSpeakers = session.rightAlignedParticipantIDs
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -43,7 +44,7 @@ struct ConversationView: View {
                         }
                         ForEach(session.events.filter { $0.kind == "message" || $0.kind == "proposed" }) { event in
                             if event.kind == "message", let participant = session.participants.first(where: { $0.id == event.participantID }) {
-                                MessageBubble(event: event, participant: participant, session: session, preview: preview)
+                                MessageBubble(event: event, participant: participant, session: session, isRightAligned: rightSpeakers.contains(participant.id), preview: preview)
                                     .id(event.id)
                             } else if event.kind == "proposed" {
                                 DisclosureGroup {
@@ -86,18 +87,33 @@ private struct MessageBubble: View {
     let event: ArenaEvent
     let participant: Participant
     let session: ArenaSession
+    let isRightAligned: Bool
     let preview: (Attachment) -> Void
 
     var body: some View {
+        HStack(spacing: 0) {
+            if isRightAligned { Spacer(minLength: 64) }
+            message.frame(maxWidth: 680)
+            if !isRightAligned { Spacer(minLength: 64) }
+        }
+    }
+
+    private var message: some View {
         HStack(alignment: .top, spacing: 11) {
-            FighterAvatar(participant: participant, size: 34)
+            if !isRightAligned { FighterAvatar(participant: participant, size: 34) }
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(participant.name).font(.system(size: 13, weight: .bold)).foregroundStyle(fighterColor(participant.index))
-                    Text(participant.model ?? "Agent").font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary).lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(event.createdAt, format: .dateTime.hour().minute()).font(.caption2).foregroundStyle(.secondary)
-                        .help(event.createdAt.formatted(date: .abbreviated, time: .standard))
+                    if isRightAligned {
+                        timestamp
+                        Spacer(minLength: 8)
+                        modelLabel
+                        nameLabel
+                    } else {
+                        nameLabel
+                        modelLabel
+                        Spacer(minLength: 8)
+                        timestamp
+                    }
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     if let replyID = event.replyTo,
@@ -123,7 +139,35 @@ private struct MessageBubble: View {
                 .background(ArenaPalette.panel, in: RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(ArenaPalette.bubbleBorder))
             }
+            if isRightAligned { FighterAvatar(participant: participant, size: 34) }
         }
+    }
+
+    private var nameLabel: some View {
+        Text(participant.name).font(.system(size: 13, weight: .bold)).foregroundStyle(fighterColor(participant.index))
+    }
+
+    private var modelLabel: some View {
+        Text(participant.model ?? "Agent").font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary).lineLimit(1)
+    }
+
+    private var timestamp: some View {
+        Text(event.createdAt, format: .dateTime.hour().minute()).font(.caption2).foregroundStyle(.secondary)
+            .help(event.createdAt.formatted(date: .abbreviated, time: .standard))
+    }
+}
+
+extension ArenaSession {
+    /// Stable sides follow first discussion messages, independent of roster and join order.
+    var rightAlignedParticipantIDs: Set<String> {
+        var speakers = Set<String>()
+        var right = Set<String>()
+        for event in events where event.kind == "message" {
+            if let id = event.participantID, speakers.insert(id).inserted, speakers.count.isMultiple(of: 2) {
+                right.insert(id)
+            }
+        }
+        return right
     }
 }
 

@@ -12,6 +12,7 @@ struct ArenaLogo: View {
 /// One vector mark shared by the window, menu bar, and generated application icon.
 @MainActor
 enum ArenaBrand {
+    static let tagline = "Fight to the Depth"
     static let mark = image(size: 100)
     static let menuIcon: NSImage = {
         let image = ArenaBrand.image(size: 18)

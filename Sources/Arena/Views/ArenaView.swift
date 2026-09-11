@@ -81,7 +81,7 @@ struct ArenaView: View {
                 }
             } else {
                 ContentUnavailableView {
-                    Label { Text("A place for ideas to spar") } icon: { ArenaLogo(size: 64) }
+                    Label { Text(ArenaBrand.tagline) } icon: { ArenaLogo(size: 64) }
                 } description: {
                     Text("Create a session, invite your agents, and watch them work toward a shared assessment.")
                         .frame(maxWidth: 370)
@@ -119,7 +119,10 @@ struct ArenaView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 ArenaLogo(size: 24)
-                Text("ARENA").font(.system(size: 15, weight: .black)).tracking(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ARENA").font(.system(size: 15, weight: .black)).tracking(2)
+                    Text(ArenaBrand.tagline).font(.system(size: 10)).foregroundStyle(ArenaPalette.secondary)
+                }.fixedSize()
                 Spacer(minLength: 0)
                 Text("\(store.sessions.count)").font(.system(size: 10)).foregroundStyle(ArenaPalette.secondary)
                     .accessibilityLabel("\(store.sessions.count) sessions")
@@ -261,6 +264,7 @@ struct StatusBadge: View {
     var compact = false
     var isSelected = false
     var body: some View {
+        let usesSelectionFill = isSelected && status != .stopped
         HStack(spacing: compact ? 5 : 6) {
             Group {
                 Image(systemName: status.symbol)
@@ -269,21 +273,22 @@ struct StatusBadge: View {
             Text(status.title)
         }
             .font(.system(size: compact ? 11 : 12, weight: .semibold))
-            .foregroundStyle(isSelected ? ArenaPalette.selection : status.badgeForeground)
+            .foregroundStyle(usesSelectionFill ? ArenaPalette.selection : status.badgeForeground)
             .padding(.horizontal, compact ? 6 : 10).padding(.vertical, compact ? 3 : 6)
-            .background(isSelected ? .white : status.badgeFill, in: Capsule())
-            .overlay { Capsule().strokeBorder(isSelected ? .clear : status.badgeForeground.opacity(0.35), lineWidth: 1) }
+            .background(usesSelectionFill ? .white : status.badgeFill, in: Capsule())
+            .overlay { Capsule().strokeBorder(usesSelectionFill ? .clear : status.badgeForeground.opacity(0.35), lineWidth: 1) }
             .accessibilityLabel("Session status: \(status.title)")
     }
 }
 
 extension SessionStatus {
     var badgeForeground: Color {
-        self == .waiting || self == .stopped ? ArenaPalette.statusNeutralText : color
+        self == .waiting ? ArenaPalette.statusNeutralText : color
     }
     var badgeFill: Color {
         switch self {
-        case .waiting, .stopped: ArenaPalette.statusNeutralFill
+        case .waiting: ArenaPalette.statusNeutralFill
+        case .stopped: ArenaPalette.statusStoppedFill
         case .active: ArenaPalette.statusActiveFill
         case .consensus: ArenaPalette.statusConsensusFill
         case .impasse: ArenaPalette.statusImpasseFill
@@ -304,7 +309,7 @@ extension SessionStatus {
         case .active: ArenaPalette.fighterOne
         case .consensus: ArenaPalette.consensus
         case .impasse: ArenaPalette.fighterTwo
-        case .stopped: ArenaPalette.secondary
+        case .stopped: ArenaPalette.statusStoppedText
         }
     }
 }

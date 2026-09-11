@@ -21,6 +21,19 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(columns.center.frame.width, 924)
     }
 
+    func testMessageSidesFollowFirstSpeechAndSurviveHistoryReload() throws {
+        var session = ArenaSession(id: "session", name: "Review", brief: "Brief", status: .active, revision: 0,
+                                   createdAt: .now, updatedAt: .now, participants: [], events: [], attachments: [])
+        for (kind, speaker) in [("joined", "second"), ("proposed", "second"), ("message", "first"),
+                                ("message", "first"), ("message", "second"), ("message", "third"),
+                                ("message", "fourth"), ("reopened", "third"), ("message", "second")] {
+            session.events.append(ArenaEvent(cursor: session.events.count + 1, kind: kind, text: "", participantID: speaker))
+        }
+        XCTAssertEqual(session.rightAlignedParticipantIDs, ["second", "fourth"])
+        let restored = try JSONDecoder().decode(ArenaSession.self, from: JSONEncoder().encode(session))
+        XCTAssertEqual(restored.rightAlignedParticipantIDs, session.rightAlignedParticipantIDs)
+    }
+
     func testCompactActivityTimeBoundaries() {
         let now = Date(timeIntervalSince1970: 200_000)
         for (age, expected) in [(-1, "Now"), (59, "Now"), (60, "1m"), (3_599, "59m"),

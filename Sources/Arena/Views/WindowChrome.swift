@@ -17,6 +17,8 @@ enum ArenaPalette {
     static let statusNeutralText = surface(light: 0x4A4A4A, dark: 0xE2E2E2)
     static let statusActiveFill = surface(light: 0xFFE3BF, dark: 0x67431C)
     static let statusConsensusFill = surface(light: 0xD8EFDE, dark: 0x315C3D)
+    static let statusStoppedFill = surface(light: 0xFADDDD, dark: 0x653333)
+    static let statusStoppedText = surface(light: 0xA52626, dark: 0xFFB4B4)
     static let statusImpasseFill = surface(light: 0xEAD8F5, dark: 0x553664)
     static let consensus = surface(light: 0x28763B, dark: 0x96DEA5)
     static let consensusFill = surface(light: 0xE7F0E9, dark: 0x26362B)
