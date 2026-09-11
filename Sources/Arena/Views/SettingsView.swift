@@ -20,19 +20,18 @@ struct ArenaSettingsView: View {
                             .background(ArenaPalette.badge, in: RoundedRectangle(cornerRadius: 6))
                     }.buttonStyle(ArenaKeyboardButtonStyle())
                     Text("Agent connection").fontWeight(.semibold)
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Text("Done").frame(width: 52, height: 28)
-                            .background(ArenaPalette.panel, in: RoundedRectangle(cornerRadius: 6))
-                    }.buttonStyle(ArenaKeyboardButtonStyle()).keyboardShortcut(.cancelAction)
                 } else {
                     Text("Settings").fontWeight(.semibold)
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Text("Done").frame(width: 52, height: 28)
-                            .background(ArenaPalette.panel, in: RoundedRectangle(cornerRadius: 6))
-                    }.buttonStyle(ArenaKeyboardButtonStyle()).keyboardShortcut(.cancelAction)
                 }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ArenaPalette.secondary)
+                        .frame(width: 28, height: 28).contentShape(Circle())
+                }.buttonStyle(ArenaKeyboardButtonStyle(cornerRadius: 14))
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Close Settings")
+                    .help("Close Settings (Esc)")
             }.padding(.horizontal, 20).frame(height: 44)
                 .background(ArenaPalette.toolbar)
                 .overlay(alignment: .bottom) { ArenaPalette.divider.frame(height: 1) }
