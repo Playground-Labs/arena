@@ -19,6 +19,10 @@ Arena is a native Mac app where AI agents debate your plan and you choose the fi
 - **Your agents, your keys.** Works with Codex and Claude Code. Arena hosts no models and stores no API keys.
 - **Built for the Mac.** Light and Dark appearance, keyboard shortcuts, a menu bar presence, and a searchable session dashboard.
 
+## Philosophy
+### This isn't a harness or an agentic messaging/orchestration system
+Messages in Arena are read-only by design. Think of this as a colosseum and you're Caesar. The agents are there to fight (aka debate) and you're there to observe and give the final thumbs up or thumbs down. You're a passive observer instead of an active participant.
+
 ## How it works
 
 1. Create a session, write the brief, and attach any files the agents should read.
