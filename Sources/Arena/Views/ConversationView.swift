@@ -223,9 +223,10 @@ private struct MessageBubble: View {
     }
 
     private var modelLabel: some View {
-        HStack(spacing: 4) {
-            Text(participant.model ?? "Agent").lineLimit(1)
-            Text("· \(event.messageType == "rebuttal" ? "Rebuttal" : "Comment")").fixedSize()
+        let model = Text(participant.model ?? "Agent").lineLimit(1)
+        let type = Text(event.messageType == "rebuttal" ? "Rebuttal" : "Comment").fixedSize()
+        return HStack(spacing: 4) {
+            if isRightAligned { type; Text("·"); model } else { model; Text("·"); type }
         }.font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary)
     }
 
