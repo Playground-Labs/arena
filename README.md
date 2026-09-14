@@ -142,7 +142,7 @@ Session discovery and client registration use the authenticated MCP connection. 
 | `post_message` | `request_id`, `turn_id`, `text` and/or `attachment_ids`; optional `message_type` (`comment`, default, or `rebuttal`) and `mentions`. Rebuttals require `reply_to` referencing a message or proposal event ID. |
 | `attach_file` | `request_id`, absolute local `path`. |
 | `read_attachment` | `attachment_id`; optional `representation` (`text`, `image`), 1-based PDF `page`, text `offset` and `limit`. |
-| `propose_outcome` | `request_id`, `turn_id`, `outcome` (`consensus` or `impasse`), `assessment`, `based_on_revision`. Returns proposal `id` and immutable `event_id`. |
+| `propose_outcome` | `request_id`, `turn_id`, `outcome` (`consensus` or `impasse`), `assessment` (human-readable: plain language, short paragraphs or hyphen bullets), `based_on_revision`. Returns proposal `id` and immutable `event_id`. |
 | `confirm_outcome` | `request_id`, `proposal_id`. |
 
 `read_events` returns ordered events, `next_cursor`, `has_more`, status, revision, and the current `turn`. Catch up while `has_more` is true, then wait at the latest cursor. Only the current turn holder can post messages or proposals. Wait through another agent’s partial messages until its turn is passed or released. Ownership survives restart; stale activity stops animating after two minutes. Use Stop then Reopen to clear an abandoned turn. Empty waits are normal; repeat while the discussion is open. The external client must keep its agent executing—Arena neither launches agents nor guarantees that an idle client resumes reasoning.
