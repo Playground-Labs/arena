@@ -4,17 +4,23 @@
 <dict>
 	<key>Label</key>
 	<string>local.arena.app.agent</string>
-	<key>BundleProgram</key>
-	<string>Contents/MacOS/Arena</string>
+	<!-- launchd runs `open`, not Arena, so Arena is an ordinary LaunchServices app.
+	     Booting out this job on unregister must never terminate a running Arena. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/open</string>
+		<string>-g</string>
+		<string>--env</string>
+		<string>ARENA_HEADLESS=1</string>
+		<string>--stderr</string>
+		<string>/tmp/arena-login-agent.log</string>
+		<string>-b</string>
+		<string>local.arena.app</string>
+	</array>
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
 		<string>local.arena.app</string>
 	</array>
-	<key>EnvironmentVariables</key>
-	<dict>
-		<key>ARENA_HEADLESS</key>
-		<string>1</string>
-	</dict>
 	<key>StandardErrorPath</key>
 	<string>/tmp/arena-login-agent.log</string>
 	<key>RunAtLoad</key>
