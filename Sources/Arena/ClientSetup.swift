@@ -113,15 +113,33 @@ final class ClientSetup {
         entry["bearer_token_env_var"] == nil && entry["env_http_headers"] == nil
     }
 
+    /// A stale entry another local Arena instance wrote: our shape, someone else’s port or token.
+    /// Explicit setup may replace one; anything else stays a conflict the user resolves manually.
+    private func replaceable(_ entry: [String: Any], headers: String) -> Bool {
+        guard entry["command"] == nil, entry["bearer_token_env_var"] == nil, entry["env_http_headers"] == nil,
+              let url = (entry["url"] as? String).flatMap(URLComponents.init(string:)),
+              url.scheme == "http", url.path == "/mcp",
+              ["127.0.0.1", "localhost", "::1"].contains(url.host ?? ""),
+              let authorization = (entry[headers] as? [String: String])?["Authorization"] else { return false }
+        return authorization.hasPrefix("Bearer ") && authorization.count > "Bearer ".count
+    }
+
+    private let replaceableStatus = "Another Arena instance · Set Up to replace"
+    private let conflictStatus = "Conflicting registration · review manual setup"
+
     private func configureCodex(_ executable: URL, install: Bool) async throws -> Bool {
         let process = try SetupProcess(executable: executable, arguments: ["app-server"], environment: environment)
         defer { process.close() }
         _ = try await process.rpc("initialize", params: ["clientInfo": ["name": "arena_setup", "version": "1.0"]])
         let read = try await process.rpc("config/read", params: ["includeLayers": true])
         let effective = (read["config"] as? [String: Any])?["mcp_servers"] as? [String: Any] ?? [:]
+        var stale = false
         if let existing = effective[name] {
-            guard let entry = existing as? [String: Any], matches(entry, headers: "http_headers") else {
-                throw ConfigurationError.message("Conflicting registration · review manual setup")
+            let entry = existing as? [String: Any] ?? [:]
+            if !matches(entry, headers: "http_headers") {
+                guard replaceable(entry, headers: "http_headers") else { throw ConfigurationError.message(conflictStatus) }
+                guard install else { throw ConfigurationError.message(replaceableStatus) }
+                stale = true
             }
         }
         let layer = (read["layers"] as? [[String: Any]])?.first(where: {
@@ -131,7 +149,7 @@ final class ClientSetup {
         var stored = (layer?["config"] as? [String: Any])?["mcp_servers"] as? [String: Any] ?? [:]
         let legacy = (stored[legacyName] as? [String: Any]).map { matches($0, headers: "http_headers") } == true &&
             (effective[legacyName] as? [String: Any]).map { matches($0, headers: "http_headers") } == true
-        if effective[name] != nil && !legacy { return true }
+        if effective[name] != nil && !legacy && !stale { return true }
         guard install || legacy else { return false }
         guard let version = layer?["version"] as? String,
               let path = (layer?["name"] as? [String: Any])?["file"] as? String else {
@@ -139,8 +157,10 @@ final class ClientSetup {
         }
         // Rename only this instance's user entry, atomically with the client's version check.
         if let existing = stored[name] {
-            guard let entry = existing as? [String: Any], matches(entry, headers: "http_headers") else {
-                throw ConfigurationError.message("Conflicting registration · review manual setup")
+            let entry = existing as? [String: Any] ?? [:]
+            if !matches(entry, headers: "http_headers") {
+                guard install, replaceable(entry, headers: "http_headers") else { throw ConfigurationError.message(conflictStatus) }
+                stored[name] = codexEntry
             }
         } else { stored[name] = codexEntry }
         if legacy { stored.removeValue(forKey: legacyName) }
@@ -168,12 +188,24 @@ final class ClientSetup {
             return matches(entry, headers: "headers") && entry["type"] as? String == "http"
         }
         let entries = try registrations()
-        if let entry = entries[name], !valid(entry) {
-            throw ConfigurationError.message("Conflicting registration · review manual setup")
+        var stale = false
+        if let existing = entries[name], !valid(existing) {
+            let entry = existing as? [String: Any] ?? [:]
+            guard entry["type"] as? String == "http", replaceable(entry, headers: "headers") else {
+                throw ConfigurationError.message(conflictStatus)
+            }
+            guard install else { throw ConfigurationError.message(replaceableStatus) }
+            stale = true
         }
         let legacy = valid(entries[legacyName])
-        if entries[name] == nil {
+        if entries[name] == nil || stale {
             guard install || legacy else { return false }
+            // `mcp add-json` cannot overwrite, so the stale entry is retired through the CLI first.
+            if stale {
+                let remove = try SetupProcess(executable: executable, arguments: ["mcp", "remove", "--scope", "user", name], environment: environment)
+                defer { remove.close() }
+                try await remove.wait()
+            }
             let json = String(decoding: try JSONSerialization.data(withJSONObject: claudeEntry), as: UTF8.self)
             let process = try SetupProcess(executable: executable, arguments: ["mcp", "add-json", "--scope", "user", name, json], environment: environment)
             defer { process.close() }

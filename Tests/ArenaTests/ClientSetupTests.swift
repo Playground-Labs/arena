@@ -41,6 +41,45 @@ final class ClientSetupTests: XCTestCase {
         XCTAssertEqual(setup.configured, Set(ClientSetup.Client.allCases))
         XCTAssertFalse(try String(contentsOf: codexFile, encoding: .utf8).contains(setup.legacyName))
         XCTAssertFalse(try String(contentsOf: claudeFile, encoding: .utf8).contains(setup.legacyName))
+        // A stale entry from another Arena instance: our shape, someone else’s port and token.
+        func writeStaleRegistration() throws {
+            try replaceCodexArenaEntry(in: codexFile, with: """
+            [mcp_servers.\(setup.name)]
+            url = "http://127.0.0.1:19430/mcp"
+            http_headers = { Authorization = "Bearer stale-token" }
+            """)
+            try replaceClaudeArenaEntry(in: claudeFile, with: ["type": "http", "url": "http://127.0.0.1:19430/mcp",
+                                                              "headers": ["Authorization": "Bearer stale-token"]])
+        }
+        try writeStaleRegistration()
+        var before = [try Data(contentsOf: codexFile), try Data(contentsOf: claudeFile)]
+        await setup.refresh()
+        XCTAssertTrue(setup.configured.isEmpty)
+        for client in ClientSetup.Client.allCases {
+            XCTAssertTrue(setup.status[client]?.contains("Set Up to replace") == true, setup.status[client] ?? "missing status")
+        }
+        XCTAssertEqual(before, [try Data(contentsOf: codexFile), try Data(contentsOf: claudeFile)], "Refresh must never mutate client configuration")
+        for client in ClientSetup.Client.allCases {
+            await setup.setUp(client)
+            XCTAssertTrue(setup.status[client]?.hasPrefix("Ready") == true, setup.status[client] ?? "missing status")
+        }
+        XCTAssertEqual(setup.configured, Set(ClientSetup.Client.allCases))
+        // A registration Arena did not write stays untouched, even on an explicit Set Up.
+        try replaceCodexArenaEntry(in: codexFile, with: """
+        [mcp_servers.\(setup.name)]
+        command = "other-server"
+        """)
+        try replaceClaudeArenaEntry(in: claudeFile, with: ["type": "stdio", "command": "other-server"])
+        before = [try Data(contentsOf: codexFile), try Data(contentsOf: claudeFile)]
+        for client in ClientSetup.Client.allCases {
+            await setup.setUp(client)
+            XCTAssertFalse(setup.configured.contains(client))
+            XCTAssertTrue(setup.status[client]?.contains("Conflicting") == true, setup.status[client] ?? "missing status")
+        }
+        XCTAssertEqual(before, [try Data(contentsOf: codexFile), try Data(contentsOf: claudeFile)])
+        try writeStaleRegistration()
+        for client in ClientSetup.Client.allCases { await setup.setUp(client) }
+        XCTAssertEqual(setup.configured, Set(ClientSetup.Client.allCases))
         await service.stop()
         await setup.verify(.codex)
         XCTAssertTrue(setup.configured.contains(.codex))
@@ -52,14 +91,6 @@ final class ClientSetupTests: XCTestCase {
         let claude = try JSONSerialization.jsonObject(with: Data(contentsOf: claudeFile)) as! [String: Any]
         XCTAssertEqual(claude["customSetting"] as? String, "keep")
         XCTAssertNotNil((claude["mcpServers"] as? [String: Any])?["unrelated"])
-        let before = [try Data(contentsOf: codexFile), try Data(contentsOf: claudeFile)]
-        let conflict = ClientSetup(directory: directory, endpoint: setup.endpoint, token: "different-token", environment: environment)
-        for client in ClientSetup.Client.allCases {
-            await conflict.setUp(client)
-            XCTAssertFalse(conflict.configured.contains(client))
-            XCTAssertTrue(conflict.status[client]?.contains("Conflicting") == true)
-        }
-        XCTAssertEqual(before, [try Data(contentsOf: codexFile), try Data(contentsOf: claudeFile)])
         let other = ClientSetup(directory: directory.appendingPathComponent("other"), endpoint: setup.endpoint, token: "test")
         XCTAssertEqual(setup.name, "arena")
         XCTAssertEqual(setup.name, other.name)
@@ -69,6 +100,29 @@ final class ClientSetupTests: XCTestCase {
         await setup.setUp(.claude)
         XCTAssertFalse(setup.configured.contains(.claude))
         XCTAssertEqual(try Data(contentsOf: claudeFile), malformed)
+    }
+
+    /// Rewrites just the `arena` table in a Codex config, leaving every other table and comment alone.
+    /// Codex serialises headers as a `[mcp_servers.arena.http_headers]` sub-table, so drop that too.
+    private func replaceCodexArenaEntry(in file: URL, with table: String) throws {
+        var kept: [String] = []
+        var dropping = false
+        var found = false
+        for line in try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n") {
+            if line.hasPrefix("[") { dropping = line.hasPrefix("[mcp_servers.arena]") || line.hasPrefix("[mcp_servers.arena.") }
+            // Codex reattaches comments to whichever table follows, and orders tables unpredictably.
+            if dropping && !line.hasPrefix("#") { found = true } else { kept.append(line) }
+        }
+        XCTAssertTrue(found, "Expected an arena table to replace")
+        try Data((kept.joined(separator: "\n") + "\n" + table + "\n").utf8).write(to: file)
+    }
+
+    private func replaceClaudeArenaEntry(in file: URL, with entry: [String: Any]) throws {
+        var root = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [String: Any]
+        var servers = root["mcpServers"] as! [String: Any]
+        servers["arena"] = entry
+        root["mcpServers"] = servers
+        try JSONSerialization.data(withJSONObject: root).write(to: file)
     }
 
     func testBundledSkillInstallationForBothClientsPreservesEdits() throws {
