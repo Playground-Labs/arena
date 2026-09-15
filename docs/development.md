@@ -51,4 +51,6 @@ Agent writes have explicit ceilings of 200 sessions, 100,000 events/operation re
 
 The crossed-swords shield is shared by the app, menu bar, and application icon. Regenerate the icon after editing its vector paths with `scripts/generate-icon.sh`.
 
+See [Releasing Arena](releasing.md) for the signing secrets and tag-driven GitHub release process.
+
 Character portraits for generated identities are a future enhancement. The current app uses initials.
