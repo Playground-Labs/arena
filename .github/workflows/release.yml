@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the build, for testing only; no release is published"
+        required: false
+        default: "0.0.0"
 
 permissions:
   contents: write
@@ -22,15 +28,27 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Validate version tag
+      - name: Resolve version
         id: version
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tags must have the form vX.Y.Z." >&2
-            exit 1
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Release tags must have the form vX.Y.Z." >&2
+              exit 1
+            fi
+            echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            version="${INPUT_VERSION:-0.0.0}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "version must have the form X.Y.Z." >&2
+              exit 1
+            fi
+            echo "number=$version" >> "$GITHUB_OUTPUT"
           fi
-          echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Import Developer ID certificate
         id: signing
@@ -114,7 +132,16 @@ jobs:
           cd dist
           shasum -a 256 "Arena-$VERSION.zip" > "Arena-$VERSION.zip.sha256"
 
+      - name: Upload build for testing
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Arena-${{ steps.version.outputs.number }}-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+
       - name: Publish GitHub release
+        if: ${{ github.event_name == 'push' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
