@@ -6,6 +6,7 @@ struct ArenaView: View {
     let store: ArenaStore
     let service: MCPService
     @Bindable var setup: ClientSetup
+    let loginAgent: LoginAgent
     @State private var selection: String?
     @State private var folder: SessionFolder = .sessions
     @State private var search = ""
@@ -55,7 +56,7 @@ struct ArenaView: View {
             }
         }
         .sheet(isPresented: $setup.showingSettings) {
-            ArenaSettingsView(setup: setup, service: service)
+            ArenaSettingsView(setup: setup, service: service, loginAgent: loginAgent)
         }
         .sheet(item: $preview) { item in
             AttachmentPreview(store: store, selection: item)

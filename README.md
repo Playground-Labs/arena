@@ -59,6 +59,8 @@ Open **Settings** (sidebar gear or **⌘,**) → **Agent connection** and click 
 
 **Refresh** checks the saved configuration and reports **Connected** once the client has completed its own MCP handshake. Problems such as a missing CLI or a conflicting registration appear beside the affected client.
 
+**Start Arena at login**, in the same section, is off by default. Enabled, it registers a quiet background login agent so Arena is already running when a client starts later and finds the server up; it does not reconnect a client that already failed to connect. macOS may ask for approval in System Settings → General → Login Items. Quitting from the menu bar stays quit until the next login. The background instance uses `~/Library/Application Support/Arena` and port 42424.
+
 For other clients, or if you prefer to configure by hand, open the disclosure to copy the setup and merge it into your client's MCP configuration. See the [Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) and [Claude Code MCP documentation](https://code.claude.com/docs/en/mcp). Arena respects the `CODEX_HOME` and `CLAUDE_CONFIG_DIR` overrides.
 
 ### Install the Arena skill
