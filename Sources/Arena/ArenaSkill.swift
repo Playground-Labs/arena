@@ -4,12 +4,14 @@ import Foundation
 enum ArenaSkill {
     private static func files() throws -> [String: Data] {
         #if SWIFT_PACKAGE
-        let root = Bundle.module.bundleURL.appendingPathComponent("Resources/arena")
+        let bundle = Bundle.module
         #else
-        guard let root = Bundle.main.resourceURL?.appendingPathComponent("Resources/arena") else {
+        let bundle = Bundle.main
+        #endif
+        // resourceURL resolves both flat and structured bundles; bundleURL only found the flat one.
+        guard let root = bundle.resourceURL?.appendingPathComponent("Resources/arena") else {
             throw ArenaError.invalid("Arena skill is missing from this build.")
         }
-        #endif
         return try Dictionary(uniqueKeysWithValues: ["SKILL.md", "agents/openai.yaml"].map {
             ($0, try Data(contentsOf: root.appendingPathComponent($0)))
         })
