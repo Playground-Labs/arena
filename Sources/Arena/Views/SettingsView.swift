@@ -4,6 +4,7 @@ import SwiftUI
 struct ArenaSettingsView: View {
     @Bindable var setup: ClientSetup
     let service: MCPService
+    let loginAgent: LoginAgent
     @AppStorage("arenaAppearance") private var appearance: ArenaAppearance = .system
     @Environment(\.dismiss) private var dismiss
     @State private var manual = false
@@ -52,8 +53,8 @@ struct ArenaSettingsView: View {
         .foregroundStyle(ArenaPalette.text).font(.system(size: 13))
         .tint(accent)
         .ignoresSafeArea()
-        .task { await setup.refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in setup.refreshSkills() }
+        .task { await setup.refresh(); loginAgent.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in setup.refreshSkills(); loginAgent.refresh() }
     }
 
     private var appearanceSettings: some View {
@@ -166,6 +167,8 @@ struct ArenaSettingsView: View {
                     }.buttonStyle(ArenaKeyboardButtonStyle(cornerRadius: 14))
                         .accessibilityLabel("Copy setup for another MCP client")
                 }.padding(.horizontal, 12).padding(.vertical, 14)
+                ArenaPalette.divider.opacity(0.5).frame(height: 0.5).padding(.horizontal, 12)
+                loginRow
             }
             .background(ArenaPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             .padding(4).background(ArenaPalette.divider.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
@@ -226,6 +229,32 @@ struct ArenaSettingsView: View {
             }.buttonStyle(ArenaKeyboardButtonStyle(cornerRadius: 14, accent: !configured)).disabled(busy || setup.executable(client) == nil)
                 .accessibilityLabel(configured ? "Refresh \(client.rawValue) connection status" : "Set up \(client.rawValue)")
                 .help(configured ? "Refresh connection status. Reconnect from \(client.rawValue) if needed." : "Register arena in \(client.rawValue)’s user configuration")
+                .frame(width: 90, alignment: .trailing)
+        }.padding(.horizontal, 12).padding(.vertical, 14)
+    }
+    private var loginRow: some View {
+        HStack(spacing: 12) {
+            clientIcon("power")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Start Arena at login").fontWeight(.semibold)
+                Text("Keeps the server up so a client starting later finds Arena running.")
+                    .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let status = loginAgent.status {
+                    Text(status).font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if loginAgent.needsApproval {
+                    Button("Open Login Items") { loginAgent.openLoginItems() }
+                        .modifier(ArenaHoverFeedback())
+                        .help("Allow Arena in System Settings → General → Login Items")
+                }
+            }
+            Spacer(minLength: 4)
+            Toggle("Start Arena at login", isOn: Binding(get: { loginAgent.enabled }, set: { loginAgent.setEnabled($0) }))
+                .labelsHidden().toggleStyle(.switch)
+                .accessibilityLabel("Start Arena at login")
+                .help("Keep Arena running from login so agent clients can connect without opening it")
                 .frame(width: 90, alignment: .trailing)
         }.padding(.horizontal, 12).padding(.vertical, 14)
     }

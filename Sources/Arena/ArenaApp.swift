@@ -21,6 +21,7 @@ final class ArenaRuntime {
     var clientSetup: ClientSetup?
     var startupError: String?
     var isQuitting = false
+    let loginAgent = LoginAgent()
     private var retentionTask: Task<Void, Never>?
 
     init() {
@@ -52,6 +53,7 @@ final class ArenaRuntime {
         } catch {
             startupError = error.localizedDescription
             FileHandle.standardError.write(Data("Arena startup failed: \(error.localizedDescription)\n".utf8))
+            if ProcessInfo.processInfo.environment["ARENA_HEADLESS"] == "1" { exit(1) }
         }
     }
 
@@ -80,9 +82,21 @@ final class ArenaApplicationDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.applicationIconImage = ArenaBrand.image(size: 512, appIcon: true)
         if runtime?.configuration?.headless == true {
             NSApplication.shared.setActivationPolicy(.accessory)
-            NSApplication.shared.windows.forEach { $0.close() }
+            NSApplication.shared.windows.forEach { $0.orderOut(nil) }
         }
     }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        !showArenaWindow()
+    }
+}
+
+// canBecomeMain is false while a window is ordered out; .titled survives hiding and excludes the MenuBarExtra panel.
+@MainActor func showArenaWindow() -> Bool {
+    if NSApplication.shared.activationPolicy() != .regular { NSApplication.shared.setActivationPolicy(.regular) }
+    guard let window = NSApplication.shared.windows.first(where: { $0.sheetParent == nil && $0.styleMask.contains(.titled) }) else { return false }
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate(ignoringOtherApps: true)
+    return true
 }
 
 @main
@@ -105,7 +119,7 @@ struct ArenaApp: App {
             Group {
                 if let store = runtime.store, let service = runtime.service,
                    let setup = runtime.clientSetup {
-                    ArenaView(store: store, service: service, setup: setup)
+                    ArenaView(store: store, service: service, setup: setup, loginAgent: runtime.loginAgent)
                 } else {
                     ContentUnavailableView {
                         Label("Arena couldn’t start", systemImage: "exclamationmark.triangle")
@@ -123,7 +137,7 @@ struct ArenaApp: App {
                 delegate.runtime = runtime
                 if runtime.configuration?.headless == true {
                     NSApplication.shared.setActivationPolicy(.accessory)
-                    NSApplication.shared.windows.forEach { $0.close() }
+                    NSApplication.shared.windows.forEach { $0.orderOut(nil) }
                 }
             }
         }
@@ -149,12 +163,10 @@ private struct ArenaMenu: View {
     var body: some View {
         Text(runtime.service?.state == "Listening" ? "Active" : runtime.service?.state ?? "Service unavailable")
         Button("Open Arena") {
-            if let window = NSApplication.shared.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
-                window.makeKeyAndOrderFront(nil)
-            } else {
+            if !showArenaWindow() {
                 openWindow(id: "arena")
+                NSApplication.shared.activate(ignoringOtherApps: true)
             }
-            NSApplication.shared.activate(ignoringOtherApps: true)
         }
         if let setup = runtime.clientSetup { OpenArenaSettings(setup: setup) }
         Divider()
@@ -171,12 +183,10 @@ struct OpenArenaSettings: View {
         Button("Settings…") {
             setup.showingConnection = false
             setup.showingSettings = true
-            if let window = NSApplication.shared.windows.first(where: { $0.canBecomeMain && $0.sheetParent == nil }) {
-                window.makeKeyAndOrderFront(nil)
-            } else {
+            if !showArenaWindow() {
                 openWindow(id: "arena")
+                NSApplication.shared.activate(ignoringOtherApps: true)
             }
-            NSApplication.shared.activate(ignoringOtherApps: true)
         }
     }
 }
