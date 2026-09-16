@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -7,6 +8,7 @@ struct ArenaView: View {
     let service: MCPService
     @Bindable var setup: ClientSetup
     let loginAgent: LoginAgent
+    let updater: SPUUpdater
     @State private var selection: String?
     @State private var folder: SessionFolder = .sessions
     @State private var search = ""
@@ -56,7 +58,7 @@ struct ArenaView: View {
             }
         }
         .sheet(isPresented: $setup.showingSettings) {
-            ArenaSettingsView(setup: setup, service: service, loginAgent: loginAgent)
+            ArenaSettingsView(setup: setup, service: service, loginAgent: loginAgent, updater: updater)
         }
         .sheet(item: $preview) { item in
             AttachmentPreview(store: store, selection: item)

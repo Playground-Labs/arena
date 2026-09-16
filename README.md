@@ -47,7 +47,7 @@ Arena does not host models or launch agents. Model access and any associated cos
 2. Open the ZIP and move **Arena.app** to **Applications**.
 3. Open Arena from Applications. The release is signed with a Developer ID certificate and notarized by Apple.
 
-To upgrade, quit Arena and replace the existing app with the newer release. Arena keeps its data in `~/Library/Application Support/Arena`.
+Arena checks for updates automatically and offers to install them in-app; choose **Arena → Check for Updates…** to check at any time. Copies older than 0.2.0 have no updater: quit Arena and replace the app with the newer release once. Arena keeps its data in `~/Library/Application Support/Arena`.
 
 To build Arena yourself instead, follow the [development guide](docs/development.md).
 
