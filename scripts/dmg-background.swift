@@ -16,7 +16,7 @@ rep.size = size
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-NSColor(calibratedWhite: 0.12, alpha: 1).setFill()
+NSColor.white.setFill()
 NSRect(origin: .zero, size: size).fill()
 
 // Arrow between the two icon slots; y is measured from the bottom here.
@@ -35,7 +35,7 @@ arrow.stroke()
 
 let caption = NSAttributedString(string: "Drag Arena to Applications", attributes: [
     .font: NSFont.systemFont(ofSize: 15, weight: .medium),
-    .foregroundColor: NSColor(calibratedWhite: 0.6, alpha: 1)
+    .foregroundColor: NSColor(calibratedWhite: 0.35, alpha: 1)
 ])
 let captionSize = caption.size()
 caption.draw(at: NSPoint(x: (size.width - captionSize.width) / 2, y: 78))

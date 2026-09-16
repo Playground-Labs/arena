@@ -196,7 +196,7 @@ jobs:
           create-dmg \
             --volname "Arena" \
             --background "$stage/background.png" \
-            --window-pos 200 120 \
+            --window-pos 400 250 \
             --window-size 660 400 \
             --icon-size 128 \
             --icon "Arena.app" 180 190 \
