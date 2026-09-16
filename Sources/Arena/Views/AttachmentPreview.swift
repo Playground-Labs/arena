@@ -51,9 +51,9 @@ struct AttachmentPreview: View {
                 }
                 Spacer()
                 if let url {
-                    Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }.modifier(ArenaHoverFeedback())
+                    Button("Show in Finder", systemImage: "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }.buttonStyle(ArenaKeyboardButtonStyle(kind: .ghost))
                 }
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction).modifier(ArenaHoverFeedback())
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
             }.padding(18)
             Divider()
             Group {

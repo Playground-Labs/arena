@@ -41,7 +41,7 @@ struct ArenaView: View {
                         Text(event.createdAt, format: .dateTime).font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                 }
-                HStack { Spacer(); Button("Done") { showingActivity = false }.keyboardShortcut(.defaultAction).modifier(ArenaHoverFeedback()) }
+                HStack { Spacer(); Button("Done") { showingActivity = false }.keyboardShortcut(.defaultAction).buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary)) }
             }.padding(24).frame(width: 520, height: 440)
         }
         .sheet(isPresented: $showingNewSession) {
@@ -106,7 +106,7 @@ struct ArenaView: View {
                         .frame(maxWidth: 370)
                 } actions: {
                     Button("New Session") { showingNewSession = true }
-                        .buttonStyle(.borderedProminent).modifier(ArenaHoverFeedback(accent: true))
+                        .buttonStyle(ArenaKeyboardButtonStyle(kind: .primary))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -199,20 +199,21 @@ struct ArenaView: View {
             VStack(spacing: 0) {
                 ArenaPalette.divider.frame(height: 1)
                 HStack(spacing: 0) {
-                    Button { setup.showingConnection = true; setup.showingSettings = true } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "link").font(.system(size: 16)).foregroundStyle(ArenaPalette.secondary)
-                                .frame(width: 16, height: 16)
-                            Text("Agent connection").font(.system(size: 11))
+                    let ready = service.state == "Listening", starting = service.state == "Starting"
+                    Button { setup.settingsTab = .agents; setup.showingSettings = true } label: {
+                        HStack(spacing: 7) {
+                            Circle().fill(ready ? ArenaPalette.consensus : starting ? ArenaPalette.pendingProposal : ArenaPalette.statusStoppedText)
+                                .frame(width: 6, height: 6).accessibilityHidden(true)
+                            Text(ready ? "MCP ready" : starting ? "MCP starting" : "MCP unavailable").font(.system(size: 11))
+                                .foregroundStyle(ArenaPalette.secondary)
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 8).frame(height: 28).contentShape(RoundedRectangle(cornerRadius: 6))
                     }
-                    .buttonStyle(ArenaKeyboardButtonStyle()).help("Set up agent connections")
-                    .accessibilityLabel("Agent connection")
-                    Button { setup.showingConnection = false; setup.showingSettings = true } label: {
-                        Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(RoundedRectangle(cornerRadius: 6))
-                    }.buttonStyle(ArenaKeyboardButtonStyle()).foregroundStyle(ArenaPalette.secondary)
+                    .buttonStyle(ArenaKeyboardButtonStyle(kind: .ghost)).help(ready ? "MCP server running on this Mac. Open Agents settings." : service.state)
+                    .accessibilityLabel("MCP status: \(service.state). Open Agents settings")
+                    Button { setup.settingsTab = .general; setup.showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }.buttonStyle(ArenaKeyboardButtonStyle(kind: .icon))
                         .help("Settings (⌘,)").accessibilityLabel("Settings")
                 }.padding(.leading, 8).padding(.trailing, 12).frame(height: 39)
             }
@@ -347,9 +348,9 @@ struct ArenaView: View {
 
     private var detailsToggle: some View {
         Button { showingDetails.toggle() } label: {
-            Image(systemName: "sidebar.right").frame(width: 28, height: 28).contentShape(Rectangle())
+            Image(systemName: "sidebar.right")
         }
-            .buttonStyle(ArenaKeyboardButtonStyle()).font(.system(size: 16)).foregroundStyle(ArenaPalette.secondary)
+            .buttonStyle(ArenaKeyboardButtonStyle(kind: .icon)).font(.system(size: 16))
             .keyboardShortcut("i", modifiers: [.command, .option])
             .help("Session Details").accessibilityLabel("Session Details")
     }
@@ -574,14 +575,14 @@ struct SessionEditor: View {
             }
             if session == nil {
                 VStack(alignment: .leading, spacing: 8) {
-                    Button("Add Brief Attachments…", systemImage: "paperclip") { importing = true }.modifier(ArenaHoverFeedback())
+                    Button("Add Brief Attachments…", systemImage: "paperclip") { importing = true }.buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
                     Text("Text, Markdown, PNG, JPEG, or PDF · up to 20 MiB each").font(.caption).foregroundStyle(.secondary)
                     ForEach(files, id: \.self) { file in
                         HStack {
                             Text(file.lastPathComponent).lineLimit(1)
                             Spacer()
-                            Button { files.removeAll { $0 == file } } label: { Image(systemName: "xmark.circle.fill").frame(width: 24, height: 24) }
-                                .buttonStyle(ArenaKeyboardButtonStyle()).accessibilityLabel("Remove \(file.lastPathComponent)")
+                            Button { files.removeAll { $0 == file } } label: { Image(systemName: "xmark.circle.fill") }
+                                .buttonStyle(ArenaKeyboardButtonStyle(kind: .icon)).accessibilityLabel("Remove \(file.lastPathComponent)")
                         }
                     }
                 }
@@ -589,7 +590,7 @@ struct SessionEditor: View {
             if let error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).modifier(ArenaHoverFeedback())
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction).buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
                 Button(session == nil ? "Create Session" : "Save Changes") {
                     saving = true
                     Task {
@@ -597,7 +598,7 @@ struct SessionEditor: View {
                         do { try await save(nameToSave, brief, files); dismiss() } catch { self.error = error.localizedDescription }
                     }
                 }
-                .buttonStyle(.borderedProminent).modifier(ArenaHoverFeedback(accent: true)).keyboardShortcut(.defaultAction)
+                .buttonStyle(ArenaKeyboardButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
                 .disabled(nameToSave.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
