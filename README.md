@@ -43,8 +43,8 @@ Arena does not host models or launch agents. Model access and any associated cos
 
 ## Installation
 
-1. Download the latest `Arena-<version>.zip` from [GitHub Releases](https://github.com/Playground-Labs/arena/releases/latest).
-2. Open the ZIP and move **Arena.app** to **Applications**.
+1. Download the latest `Arena-<version>.dmg` from [GitHub Releases](https://github.com/Playground-Labs/arena/releases/latest).
+2. Open the disk image and drag **Arena** onto the **Applications** folder.
 3. Open Arena from Applications. The release is signed with a Developer ID certificate and notarized by Apple.
 
 Arena checks for updates automatically and offers to install them in-app; choose **Arena → Check for Updates…** to check at any time. Copies older than 0.2.0 have no updater: quit Arena and replace the app with the newer release once. Arena keeps its data in `~/Library/Application Support/Arena`.

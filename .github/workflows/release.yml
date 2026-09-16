@@ -177,6 +177,49 @@ jobs:
           rm -f "$key"
           grep -q 'sparkle:edSignature' dist/appcast.xml
 
+      - name: Build disk image
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          VERSION: ${{ steps.version.outputs.number }}
+        run: |
+          set -euo pipefail
+          brew install --quiet create-dmg
+          stage="$RUNNER_TEMP/dmg"
+          mkdir -p "$stage/stage"
+          cp -R "$RUNNER_TEMP/Arena.xcarchive/Products/Applications/Arena.app" "$stage/stage/"
+          swift scripts/dmg-background.swift "$stage/background.png"
+          dmg="dist/Arena-$VERSION.dmg"
+          create-dmg \
+            --volname "Arena" \
+            --background "$stage/background.png" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 128 \
+            --icon "Arena.app" 180 190 \
+            --hide-extension "Arena.app" \
+            --app-drop-link 480 190 \
+            --no-internet-enable \
+            "$dmg" "$stage/stage"
+          codesign --force --timestamp --sign "$SIGNING_IDENTITY" "$dmg"
+
+          submission="$(xcrun notarytool submit "$dmg" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait --output-format json)"
+          xcrun notarytool log "$(jq -r .id <<<"$submission")" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          test "$(jq -r .status <<<"$submission")" = "Accepted"
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+
       - name: Upload build for testing
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
@@ -193,7 +236,8 @@ jobs:
           VERSION: ${{ steps.version.outputs.number }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            "dist/Arena-$VERSION.zip#Arena $VERSION" \
+            "dist/Arena-$VERSION.dmg#Arena $VERSION" \
+            "dist/Arena-$VERSION.zip#Arena $VERSION (zip, used by in-app updates)" \
             "dist/Arena-$VERSION.zip.sha256#SHA-256 checksum" \
             "dist/appcast.xml#Sparkle appcast" \
             --verify-tag \

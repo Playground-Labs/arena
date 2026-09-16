@@ -1,6 +1,6 @@
 # Releasing Arena
 
-Pushing a stable semantic-version tag such as `v0.1.0` runs the GitHub release workflow. It builds a universal macOS app, signs it with Developer ID, notarizes it with Apple, staples the notarization ticket, verifies it with Gatekeeper, and publishes a ZIP and SHA-256 checksum to GitHub Releases. It also publishes a Sparkle appcast so installed copies can update themselves in-app.
+Pushing a stable semantic-version tag such as `v0.1.0` runs the GitHub release workflow. It builds a universal macOS app, signs it with Developer ID, notarizes it with Apple, staples the notarization ticket, verifies it with Gatekeeper, and publishes a drag-to-install disk image, a ZIP (the Sparkle update payload) and its SHA-256 checksum to GitHub Releases. The disk image background comes from `scripts/dmg-background.swift`, which is rendered during the workflow. It also publishes a Sparkle appcast so installed copies can update themselves in-app.
 
 ## One-time GitHub setup
 
