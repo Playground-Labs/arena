@@ -264,11 +264,8 @@ struct MarkdownText: View {
 private struct AcceptProposalButton: View {
     let accept: () -> Void
     var body: some View {
-        Button(action: accept) {
-            Text("Accept").font(.system(size: 12, weight: .semibold)).foregroundStyle(ArenaPalette.consensus)
-                .padding(.horizontal, 6).frame(height: 24).contentShape(Rectangle())
-        }
-            .buttonStyle(ArenaKeyboardButtonStyle(cornerRadius: 5))
+        Button("Accept", action: accept)
+            .buttonStyle(ArenaKeyboardButtonStyle(kind: .primary))
             .help("Accept this proposal as the final answer and end the discussion")
             .accessibilityLabel("Accept this proposal as final answer")
     }
@@ -311,7 +308,7 @@ private struct OutcomeCard: View {
             if !proposal.assessment.isEmpty { MarkdownText(text: proposal.assessment) }
             if let source {
                 Button("\(session.participants.first { $0.id == source.participantID }?.name ?? "Agent") · Selected answer") { showSource(source.id) }
-                    .buttonStyle(.plain).font(.caption).foregroundStyle(.secondary).modifier(ArenaHoverFeedback())
+                    .buttonStyle(ArenaKeyboardButtonStyle(kind: .ghost)).foregroundStyle(ArenaPalette.secondary)
                     .accessibilityLabel("View selected answer in conversation")
             } else {
                 if !session.status.isClosed {
@@ -362,7 +359,7 @@ struct SessionInspector: View {
                 VStack(alignment: .leading, spacing: 20) {
                     inspectorHeading("AGENTS")
                     if !session.status.isClosed {
-                        CopyButton(title: "Copy Join Instructions", text: joinInstructions).font(.caption)
+                        CopyButton(title: "Copy Join Instructions", text: joinInstructions)
                     }
                     if session.joinedParticipants.isEmpty {
                         Text("No agents have joined yet.").font(.caption).foregroundStyle(.secondary)
@@ -422,7 +419,7 @@ struct CopyButton: View {
             NSPasteboard.general.setString(text, forType: .string)
             copied = true
         } label: { Label(copied ? "Copied" : title, systemImage: copied ? "checkmark" : "doc.on.doc") }
-        .modifier(ArenaHoverFeedback())
+        .buttonStyle(ArenaKeyboardButtonStyle(kind: .ghost))
         .onChange(of: text) { _, _ in copied = false }
     }
 }

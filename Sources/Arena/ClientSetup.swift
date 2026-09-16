@@ -6,13 +6,15 @@ import Observation
 @MainActor @Observable
 final class ClientSetup {
     enum Client: String, CaseIterable { case codex = "Codex", claude = "Claude Code" }
+    enum SettingsTab: String, CaseIterable { case general = "General", agents = "Agents", advanced = "Advanced" }
     var showingSettings = false
-    var showingConnection = false
+    var settingsTab: SettingsTab = .general
     private(set) var status: [Client: String] = [:]
     private(set) var configured: Set<Client> = []
     private(set) var busy: Set<Client> = []
     private(set) var installedSkills: Set<Client> = []
     private(set) var skillErrors: [Client: String] = [:]
+    private(set) var justInstalled: Set<Client> = []
     let name = "arena"
     let legacyName: String
     let endpoint: String
@@ -63,6 +65,7 @@ final class ClientSetup {
             skillErrors.removeValue(forKey: client)
             do { if try ArenaSkill.isInstalled(at: skillDirectory(client)) { installedSkills.insert(client) } }
             catch { skillErrors[client] = error.localizedDescription }
+            if !installedSkills.contains(client) { justInstalled.remove(client) }
         }
     }
 
@@ -70,6 +73,9 @@ final class ClientSetup {
         do {
             try ArenaSkill.install(at: skillDirectory(client))
             refreshSkills()
+            guard installedSkills.contains(client) else { return }
+            justInstalled.insert(client)
+            Task { try? await Task.sleep(for: .seconds(2.5)); justInstalled.remove(client) }
         } catch { skillErrors[client] = error.localizedDescription }
     }
     func setUp(_ client: Client) async { await perform(client, install: true, verify: true) }

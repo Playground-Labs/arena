@@ -185,7 +185,7 @@ struct OpenArenaSettings: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         Button("Settings…") {
-            setup.showingConnection = false
+            setup.settingsTab = .general
             setup.showingSettings = true
             if !showArenaWindow() {
                 openWindow(id: "arena")

@@ -137,6 +137,7 @@ final class ClientSetupTests: XCTestCase {
         for client in ClientSetup.Client.allCases {
             setup.installSkill(client)
             XCTAssertTrue(setup.installedSkills.contains(client), setup.skillErrors[client] ?? "not installed")
+            XCTAssertTrue(setup.justInstalled.contains(client))
             let skill = setup.skillDirectory(client).appendingPathComponent("SKILL.md")
             let content = try Data(contentsOf: skill)
             XCTAssertTrue(String(decoding: content, as: UTF8.self).contains("name: arena"))
