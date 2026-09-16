@@ -124,11 +124,16 @@ jobs:
           upload="$RUNNER_TEMP/Arena-notarization.zip"
 
           ditto -c -k --keepParent "$app" "$upload"
-          xcrun notarytool submit "$upload" \
+          submission="$(xcrun notarytool submit "$upload" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --wait
+            --wait --output-format json)"
+          xcrun notarytool log "$(jq -r .id <<<"$submission")" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          test "$(jq -r .status <<<"$submission")" = "Accepted"
           xcrun stapler staple "$app"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=4 "$app"
