@@ -108,6 +108,18 @@ jobs:
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
 
           app="$RUNNER_TEMP/Arena.xcarchive/Products/Applications/Arena.app"
+
+          # Xcode leaves Sparkle's nested helpers with their upstream signature,
+          # which notarization rejects. Re-sign them inside out, then the app.
+          sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
+          sign() { codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$@"; }
+          sign "$sparkle/XPCServices/Installer.xpc"
+          sign --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
+          sign "$sparkle/Autoupdate"
+          sign "$sparkle/Updater.app"
+          sign "$app/Contents/Frameworks/Sparkle.framework"
+          sign "$app"
+
           codesign --verify --deep --strict --verbose=2 "$app"
           test "$(lipo -archs "$app/Contents/MacOS/Arena")" = "x86_64 arm64"
 
