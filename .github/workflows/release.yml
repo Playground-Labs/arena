@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      SPARKLE_VERSION: 2.9.6
 
     steps:
       - name: Check out source
@@ -33,8 +34,13 @@ jobs:
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           set -euo pipefail
+          if [[ -z "$SPARKLE_ED_PRIVATE_KEY" ]]; then
+            echo "SPARKLE_ED_PRIVATE_KEY is not set." >&2
+            exit 1
+          fi
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Release tags must have the form vX.Y.Z." >&2
@@ -102,6 +108,18 @@ jobs:
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
 
           app="$RUNNER_TEMP/Arena.xcarchive/Products/Applications/Arena.app"
+
+          # Xcode leaves Sparkle's nested helpers with their upstream signature,
+          # which notarization rejects. Re-sign them inside out, then the app.
+          sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
+          sign() { codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$@"; }
+          sign "$sparkle/XPCServices/Installer.xpc"
+          sign --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
+          sign "$sparkle/Autoupdate"
+          sign "$sparkle/Updater.app"
+          sign "$app/Contents/Frameworks/Sparkle.framework"
+          sign "$app"
+
           codesign --verify --deep --strict --verbose=2 "$app"
           test "$(lipo -archs "$app/Contents/MacOS/Arena")" = "x86_64 arm64"
 
@@ -118,11 +136,16 @@ jobs:
           upload="$RUNNER_TEMP/Arena-notarization.zip"
 
           ditto -c -k --keepParent "$app" "$upload"
-          xcrun notarytool submit "$upload" \
+          submission="$(xcrun notarytool submit "$upload" \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --wait
+            --wait --output-format json)"
+          xcrun notarytool log "$(jq -r .id <<<"$submission")" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD"
+          test "$(jq -r .status <<<"$submission")" = "Accepted"
           xcrun stapler staple "$app"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=4 "$app"
@@ -131,6 +154,28 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$app" "dist/Arena-$VERSION.zip"
           cd dist
           shasum -a 256 "Arena-$VERSION.zip" > "Arena-$VERSION.zip.sha256"
+
+      - name: Generate Sparkle appcast
+        shell: bash
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          VERSION: ${{ steps.version.outputs.number }}
+        run: |
+          set -euo pipefail
+          sparkle="$RUNNER_TEMP/sparkle"
+          mkdir -p "$sparkle"
+          curl -sSL "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz" | tar -xJ -C "$sparkle"
+
+          key="$RUNNER_TEMP/sparkle-ed.key"
+          echo -n "$SPARKLE_ED_PRIVATE_KEY" > "$key"
+          "$sparkle/bin/generate_appcast" \
+            --ed-key-file "$key" \
+            --download-url-prefix "https://github.com/Playground-Labs/arena/releases/download/v$VERSION/" \
+            --link "https://github.com/Playground-Labs/arena/releases/tag/v$VERSION" \
+            --full-release-notes-url "https://github.com/Playground-Labs/arena/releases/tag/v$VERSION" \
+            -o dist/appcast.xml dist
+          rm -f "$key"
+          grep -q 'sparkle:edSignature' dist/appcast.xml
 
       - name: Upload build for testing
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -150,11 +195,14 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "dist/Arena-$VERSION.zip#Arena $VERSION" \
             "dist/Arena-$VERSION.zip.sha256#SHA-256 checksum" \
+            "dist/appcast.xml#Sparkle appcast" \
             --verify-tag \
             --generate-notes \
             --title "Arena $GITHUB_REF_NAME"
 
-      - name: Remove signing keychain
+      - name: Remove signing material
         if: ${{ always() }}
         shell: bash
-        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/sparkle-ed.key"

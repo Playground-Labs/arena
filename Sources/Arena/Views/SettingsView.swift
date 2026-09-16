@@ -1,10 +1,12 @@
 import AppKit
+import Sparkle
 import SwiftUI
 
 struct ArenaSettingsView: View {
     @Bindable var setup: ClientSetup
     let service: MCPService
     let loginAgent: LoginAgent
+    let updater: SPUUpdater
     @AppStorage("arenaAppearance") private var appearance: ArenaAppearance = .system
     @Environment(\.dismiss) private var dismiss
     @State private var manual = false
@@ -169,6 +171,8 @@ struct ArenaSettingsView: View {
                 }.padding(.horizontal, 12).padding(.vertical, 14)
                 ArenaPalette.divider.opacity(0.5).frame(height: 0.5).padding(.horizontal, 12)
                 loginRow
+                ArenaPalette.divider.opacity(0.5).frame(height: 0.5).padding(.horizontal, 12)
+                updatesRow
             }
             .background(ArenaPalette.panel, in: RoundedRectangle(cornerRadius: 10))
             .padding(4).background(ArenaPalette.divider.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
@@ -255,6 +259,23 @@ struct ArenaSettingsView: View {
                 .labelsHidden().toggleStyle(.switch)
                 .accessibilityLabel("Start Arena at login")
                 .help("Keep Arena running from login so agent clients can connect without opening it")
+                .frame(width: 90, alignment: .trailing)
+        }.padding(.horizontal, 12).padding(.vertical, 14)
+    }
+    private var updatesRow: some View {
+        HStack(spacing: 12) {
+            clientIcon("arrow.triangle.2.circlepath")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Check for updates automatically").fontWeight(.semibold)
+                Text("Arena looks for new releases in the background and offers to install them.")
+                    .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Toggle("Check for updates automatically", isOn: Binding(get: { updater.automaticallyChecksForUpdates }, set: { updater.automaticallyChecksForUpdates = $0 }))
+                .labelsHidden().toggleStyle(.switch)
+                .accessibilityLabel("Check for updates automatically")
+                .help("Let Arena look for new releases in the background")
                 .frame(width: 90, alignment: .trailing)
         }.padding(.horizontal, 12).padding(.vertical, 14)
     }

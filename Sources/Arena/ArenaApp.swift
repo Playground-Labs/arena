@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 import SwiftUI
 
 enum ArenaAppearance: String, CaseIterable {
@@ -22,6 +23,7 @@ final class ArenaRuntime {
     var startupError: String?
     var isQuitting = false
     let loginAgent = LoginAgent()
+    let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private var retentionTask: Task<Void, Never>?
 
     init() {
@@ -119,7 +121,7 @@ struct ArenaApp: App {
             Group {
                 if let store = runtime.store, let service = runtime.service,
                    let setup = runtime.clientSetup {
-                    ArenaView(store: store, service: service, setup: setup, loginAgent: runtime.loginAgent)
+                    ArenaView(store: store, service: service, setup: setup, loginAgent: runtime.loginAgent, updater: runtime.updater.updater)
                 } else {
                     ContentUnavailableView {
                         Label("Arena couldn’t start", systemImage: "exclamationmark.triangle")
@@ -145,6 +147,7 @@ struct ArenaApp: App {
         .defaultSize(width: 1120, height: 760)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) { CheckForUpdatesView(updater: runtime.updater.updater) }
             CommandGroup(replacing: .appSettings) {
                 if let setup = runtime.clientSetup { OpenArenaSettings(setup: setup).keyboardShortcut(",") }
             }
@@ -169,6 +172,7 @@ private struct ArenaMenu: View {
             }
         }
         if let setup = runtime.clientSetup { OpenArenaSettings(setup: setup) }
+        CheckForUpdatesView(updater: runtime.updater.updater)
         Divider()
         Button("Quit Arena") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
