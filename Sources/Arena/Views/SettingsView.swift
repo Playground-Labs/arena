@@ -8,15 +8,17 @@ struct ArenaSettingsView: View {
     let loginAgent: LoginAgent
     let updater: SPUUpdater
     @AppStorage("arenaAppearance") private var appearance: ArenaAppearance = .system
-    @Environment(\.dismiss) private var dismiss
     @State private var manualClient = "Codex"
     @State private var pageHeight: CGFloat = 0
+    @State private var forward = true
+    @Namespace private var tabPill
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Spacer()
-                Button { dismiss() } label: {
+                Button { setup.showingSettings = false } label: {
                     Image(systemName: "xmark")
                 }.buttonStyle(ArenaKeyboardButtonStyle(kind: .icon))
                     .keyboardShortcut(.cancelAction)
@@ -26,11 +28,14 @@ struct ArenaSettingsView: View {
                 .padding(.horizontal, 20).frame(height: 52)
                 .background(ArenaPalette.toolbar)
                 .overlay(alignment: .bottom) { ArenaPalette.divider.frame(height: 1) }
-            switch setup.settingsTab {
-            case .general: page { general }
-            case .agents: page { agents }
-            case .advanced: page { advanced }
-            }
+            ZStack {
+                switch setup.settingsTab {
+                case .general: page { general }
+                case .agents: page { agents }
+                case .advanced: page { advanced }
+                }
+            }.transition(.asymmetric(insertion: .move(edge: forward ? .trailing : .leading), removal: .move(edge: forward ? .leading : .trailing)).combined(with: .opacity))
+                .clipped()
         }
         .fixedSize(horizontal: false, vertical: true).frame(width: 520)
         .background(ArenaPalette.canvas)
@@ -44,13 +49,18 @@ struct ArenaSettingsView: View {
         HStack(spacing: 4) {
             ForEach(ClientSetup.SettingsTab.allCases, id: \.self) { tab in
                 let active = setup.settingsTab == tab
-                Button { setup.settingsTab = tab } label: {
+                Button { select(tab) } label: {
                     Label(tab.rawValue, systemImage: icon(tab)).padding(.horizontal, 4).foregroundStyle(active ? ArenaPalette.text : ArenaPalette.secondary)
                 }.buttonStyle(ArenaKeyboardButtonStyle(kind: .ghost))
-                    .background { if active { RoundedRectangle(cornerRadius: 6).fill(ArenaPalette.tabSelected).shadow(color: .black.opacity(0.08), radius: 1, y: 1) } }
+                    .background { if active { RoundedRectangle(cornerRadius: 6).fill(ArenaPalette.tabSelected).shadow(color: .black.opacity(0.08), radius: 1, y: 1).matchedGeometryEffect(id: "pill", in: tabPill) } }
                     .accessibilityAddTraits(active ? .isSelected : [])
             }
         }.padding(4).background(ArenaPalette.navigationSelection, in: RoundedRectangle(cornerRadius: 9))
+    }
+    private func select(_ tab: ClientSetup.SettingsTab) {
+        let all = ClientSetup.SettingsTab.allCases
+        forward = all.firstIndex(of: tab)! > all.firstIndex(of: setup.settingsTab)!
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) { setup.settingsTab = tab }
     }
     private func icon(_ tab: ClientSetup.SettingsTab) -> String {
         switch tab {

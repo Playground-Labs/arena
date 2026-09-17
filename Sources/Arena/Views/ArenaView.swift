@@ -57,9 +57,18 @@ struct ArenaView: View {
                 try store.editSession(session.id, name: name, brief: brief)
             }
         }
-        .sheet(isPresented: $setup.showingSettings) {
-            ArenaSettingsView(setup: setup, service: service, loginAgent: loginAgent, updater: updater)
+        .overlay {
+            if setup.showingSettings {
+                ZStack {
+                    Color.black.opacity(0.35).ignoresSafeArea().onTapGesture { setup.showingSettings = false }
+                        .accessibilityLabel("Close Settings").accessibilityAddTraits(.isButton)
+                    ArenaSettingsView(setup: setup, service: service, loginAgent: loginAgent, updater: updater)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(color: .black.opacity(0.3), radius: 24, y: 8)
+                }.transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: setup.showingSettings)
         .sheet(item: $preview) { item in
             AttachmentPreview(store: store, selection: item)
         }
@@ -206,11 +215,11 @@ struct ArenaView: View {
                                 .frame(width: 6, height: 6).accessibilityHidden(true)
                             Text(ready ? "MCP ready" : starting ? "MCP starting" : "MCP unavailable").font(.system(size: 11))
                                 .foregroundStyle(ArenaPalette.secondary)
-                            Spacer(minLength: 0)
                         }
                     }
                     .buttonStyle(ArenaKeyboardButtonStyle(kind: .ghost)).help(ready ? "MCP server running on this Mac. Open Agents settings." : service.state)
                     .accessibilityLabel("MCP status: \(service.state). Open Agents settings")
+                    Spacer(minLength: 0)
                     Button { setup.settingsTab = .general; setup.showingSettings = true } label: {
                         Image(systemName: "gearshape")
                     }.buttonStyle(ArenaKeyboardButtonStyle(kind: .icon))
