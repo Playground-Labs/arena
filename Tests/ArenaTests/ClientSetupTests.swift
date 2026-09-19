@@ -147,6 +147,7 @@ final class ClientSetupTests: XCTestCase {
             try custom.write(to: skill)
             setup.refreshSkills()
             XCTAssertFalse(setup.installedSkills.contains(client))
+            XCTAssertTrue(setup.skillMismatches.contains(client))
             setup.installSkill(client)
             XCTAssertNotNil(setup.skillErrors[client])
             XCTAssertEqual(try Data(contentsOf: skill), custom)

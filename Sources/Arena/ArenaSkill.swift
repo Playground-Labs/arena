@@ -2,6 +2,10 @@ import Foundation
 
 /// The same bundled files serve both clients; installation preserves local edits.
 enum ArenaSkill {
+    struct InstalledFilesDifferError: LocalizedError {
+        var errorDescription: String? { "Existing skill differs. Your files were preserved; review the skill folder before installing." }
+    }
+
     private static func files() throws -> [String: Data] {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
@@ -23,7 +27,7 @@ enum ArenaSkill {
             let file = directory.appendingPathComponent(path)
             if FileManager.default.fileExists(atPath: file.path) {
                 guard try Data(contentsOf: file) == expected else {
-                    throw ArenaError.invalid("Existing skill differs. Your files were preserved; review the skill folder before installing.")
+                    throw InstalledFilesDifferError()
                 }
             } else { complete = false }
         }

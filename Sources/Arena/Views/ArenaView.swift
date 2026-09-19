@@ -372,7 +372,7 @@ struct ArenaView: View {
         if session.isStoredAway {
             Button("Restore Session", systemImage: "arrow.uturn.backward") { restore(session) }
         } else {
-            Button("Edit Session…") { editingSession = session }
+            Button("Edit Session…", systemImage: "pencil") { editingSession = session }
             lifecycleButton(session)
             Divider()
             Button("Archive Session", systemImage: "archivebox") { perform { try store.archiveSession(session.id) } }
