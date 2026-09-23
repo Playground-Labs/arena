@@ -196,15 +196,16 @@ struct ArenaView: View {
             if let error = store.retentionError {
                 Text(error).font(.caption).foregroundStyle(.red).padding(12).textSelection(.enabled)
             }
-            Button { selectFolder(.deleted) } label: {
-                sidebarLabel("Recently Deleted", icon: "trash")
+            let showingDeleted = folder == .deleted
+            Button { selectFolder(showingDeleted ? .sessions : .deleted) } label: {
+                sidebarLabel(showingDeleted ? "Back to Sessions" : "Recently Deleted",
+                             icon: showingDeleted ? "chevron.left" : "trash")
                     .font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary)
                     .frame(height: 36)
-                    .background(folder == .deleted ? ArenaPalette.navigationSelection : .clear,
-                                in: RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(ArenaKeyboardButtonStyle()).padding(.horizontal, 8)
-            .accessibilityAddTraits(folder == .deleted ? .isSelected : [])
+            .accessibilityLabel(showingDeleted ? "Back to Sessions" : "Show Recently Deleted")
+            .help(showingDeleted ? "Return to active sessions" : "Show recently deleted sessions")
             VStack(spacing: 0) {
                 ArenaPalette.divider.frame(height: 1)
                 HStack(spacing: 0) {
