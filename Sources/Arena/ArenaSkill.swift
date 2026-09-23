@@ -2,6 +2,10 @@ import Foundation
 
 /// The same bundled files serve both clients; installation preserves local edits.
 enum ArenaSkill {
+    struct InstalledFilesDifferError: LocalizedError {
+        var errorDescription: String? { "Existing skill differs. Your files were preserved; review the skill folder before installing." }
+    }
+
     private static func files() throws -> [String: Data] {
         #if SWIFT_PACKAGE
         let bundle = Bundle.module
@@ -23,7 +27,7 @@ enum ArenaSkill {
             let file = directory.appendingPathComponent(path)
             if FileManager.default.fileExists(atPath: file.path) {
                 guard try Data(contentsOf: file) == expected else {
-                    throw ArenaError.invalid("Existing skill differs. Your files were preserved; review the skill folder before installing.")
+                    throw InstalledFilesDifferError()
                 }
             } else { complete = false }
         }
@@ -40,5 +44,14 @@ enum ArenaSkill {
             try data.write(to: file, options: .withoutOverwriting)
         }
         guard try isInstalled(at: directory) else { throw ArenaError.invalid("Skill installation is incomplete. Try installing again.") }
+    }
+
+    static func update(at directory: URL) throws {
+        for (path, data) in try files() {
+            let file = directory.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: file, options: .atomic)
+        }
+        guard try isInstalled(at: directory) else { throw ArenaError.invalid("Skill update is incomplete. Try updating again.") }
     }
 }

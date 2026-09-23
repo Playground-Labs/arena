@@ -114,53 +114,64 @@ struct ArenaSettingsView: View {
     }
 
     private var agents: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Agents").font(.system(size: 14, weight: .semibold))
-                    Text("Connect a client, then install the Arena skill.")
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Agent connection").font(.system(size: 14, weight: .semibold))
+                        Text("Connect clients to Arena.")
+                            .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Circle().fill(service.state == "Listening" ? ArenaPalette.consensus : ArenaPalette.secondary).frame(width: 5, height: 5)
+                    Text(service.state == "Listening" ? "Running on this Mac" : service.state)
                         .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
                 }
-                Spacer(minLength: 8)
-                Circle().fill(service.state == "Listening" ? ArenaPalette.consensus : ArenaPalette.secondary).frame(width: 5, height: 5)
-                Text(service.state == "Listening" ? "Running on this Mac" : service.state)
-                    .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
+                card {
+                    connectionRow(.codex)
+                    rowDivider
+                    connectionRow(.claude)
+                    rowDivider
+                    HStack(spacing: 12) {
+                        clientIcon("network")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Other client").fontWeight(.semibold)
+                            Text("Any MCP-compatible client").font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Button { copy(setup.jsonConfiguration) } label: { Text("Copy Setup") }
+                            .buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
+                            .accessibilityLabel("Copy setup for another MCP client")
+                            .frame(width: 96, alignment: .trailing)
+                    }.padding(.horizontal, 12).padding(.vertical, 14)
+                }
             }
-            card {
-                clientRow(.codex)
-                rowDivider
-                clientRow(.claude)
-                rowDivider
-                HStack(spacing: 12) {
-                    clientIcon("network")
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Other client").fontWeight(.semibold)
-                        Text("Use any MCP-compatible client").font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
-                    }
-                    Spacer(minLength: 4)
-                    Button { copy(setup.jsonConfiguration) } label: { Text("Copy Setup") }
-                        .buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
-                        .accessibilityLabel("Copy setup for another MCP client")
-                        .frame(width: 96, alignment: .trailing)
-                }.padding(.horizontal, 12).padding(.vertical, 14)
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Arena skill").font(.system(size: 14, weight: .semibold))
+                    Text("Install the skill that teaches agents how to use Arena. Open a new chat after installing.")
+                        .font(.system(size: 12)).foregroundStyle(ArenaPalette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                card {
+                    skillRow(.codex)
+                    rowDivider
+                    skillRow(.claude)
+                }
             }
         }.padding(20)
     }
 
-    private func clientRow(_ client: ClientSetup.Client) -> some View {
+    private func connectionRow(_ client: ClientSetup.Client) -> some View {
         let busy = setup.busy.contains(client)
         let configured = setup.configured.contains(client)
         let lastActivity = service.lastActivity(for: client)
         let status = setup.status[client] ?? "Checking…"
-        let skillError = setup.skillErrors[client]
         return HStack(spacing: 12) {
             clientIcon(client == .codex ? "terminal" : "asterisk")
             VStack(alignment: .leading, spacing: 4) {
                 Text(client.rawValue).fontWeight(.semibold)
-                VStack(alignment: .leading, spacing: 3) {
-                    connectionStatus(lastActivity, status: status, busy: busy)
-                    skillStatus(client)
-                }
+                connectionStatus(lastActivity, status: status, busy: busy)
             }
             Spacer(minLength: 4)
             HStack(spacing: 6) {
@@ -175,11 +186,38 @@ struct ArenaSettingsView: View {
                         .buttonStyle(ArenaKeyboardButtonStyle(kind: .primary)).disabled(busy)
                         .accessibilityLabel("Set up \(client.rawValue)")
                         .help("Register arena in \(client.rawValue)’s user configuration")
-                } else if skillError != nil {
-                    Button { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: setup.skillDirectory(client).path) } label: { Text("Show Folder") }
-                        .buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
+                }
+            }.frame(width: 96, alignment: .trailing)
+        }.padding(.horizontal, 12).padding(.vertical, 14)
+    }
+
+    private func skillRow(_ client: ClientSetup.Client) -> some View {
+        let error = setup.skillErrors[client]
+        let installed = setup.installedSkills.contains(client)
+        let mismatch = setup.skillMismatches.contains(client)
+        return HStack(spacing: 12) {
+            clientIcon(client == .codex ? "terminal" : "asterisk")
+            VStack(alignment: .leading, spacing: 4) {
+                Text(client.rawValue).fontWeight(.semibold)
+                skillStatus(client)
+            }
+            Spacer(minLength: 4)
+            HStack(spacing: 6) {
+                if mismatch {
+                    Button { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: setup.skillDirectory(client).path) } label: {
+                        Image(systemName: "magnifyingglass")
+                    }.buttonStyle(ArenaKeyboardButtonStyle(kind: .icon))
                         .accessibilityLabel("Show Skill Folder for \(client.rawValue)")
-                } else if !setup.installedSkills.contains(client) {
+                        .help("Show Arena skill folder in Finder")
+                    Button { setup.updateSkill(client) } label: { Text("Update Skill") }
+                        .buttonStyle(ArenaKeyboardButtonStyle(kind: .primary))
+                        .accessibilityLabel("Update Arena skill for \(client.rawValue)")
+                        .help("Replace Arena’s managed skill files with this version. Open a new chat after updating.")
+                } else if error != nil {
+                    Button { setup.installSkill(client) } label: { Text("Try Again") }
+                        .buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
+                        .accessibilityLabel("Retry Arena skill installation for \(client.rawValue)")
+                } else if !installed {
                     Button { setup.installSkill(client) } label: { Text("Install Skill") }
                         .buttonStyle(ArenaKeyboardButtonStyle(kind: .primary))
                         .accessibilityLabel("Install Arena skill for \(client.rawValue)")
@@ -219,14 +257,16 @@ struct ArenaSettingsView: View {
     private func skillStatus(_ client: ClientSetup.Client) -> some View {
         let error = setup.skillErrors[client]
         let installed = setup.installedSkills.contains(client)
-        let just = setup.justInstalled.contains(client)
         let color = error != nil ? ArenaPalette.pendingProposal : (installed ? ArenaPalette.consensus : ArenaPalette.secondary)
-        let text = error != nil ? "Skill needs attention"
-            : installed && just ? "Skill installed just now · use \(client == .codex ? "$arena" : "/arena")"
-            : installed ? "Skill installed" : "Skill not installed"
+        let mismatch = setup.skillMismatches.contains(client)
+        let text: String
+        if let error { text = mismatch ? "Installed skill differs from Arena’s version" : error }
+        else if installed { text = "Installed · use \(client == .codex ? "$arena" : "/arena")" }
+        else { text = "Not installed" }
         return HStack(spacing: 6) {
             Circle().fill(color).frame(width: 5, height: 5).accessibilityHidden(true)
-            Text(text).foregroundStyle((installed && just) || error != nil ? color : ArenaPalette.secondary)
+            Text(text).foregroundStyle(installed || error != nil ? color : ArenaPalette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }.font(.system(size: 12)).help(error ?? text)
     }
 

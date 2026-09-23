@@ -14,6 +14,7 @@ final class ClientSetup {
     private(set) var busy: Set<Client> = []
     private(set) var installedSkills: Set<Client> = []
     private(set) var skillErrors: [Client: String] = [:]
+    private(set) var skillMismatches: Set<Client> = []
     private(set) var justInstalled: Set<Client> = []
     let name = "arena"
     let legacyName: String
@@ -63,20 +64,35 @@ final class ClientSetup {
         for client in Client.allCases {
             installedSkills.remove(client)
             skillErrors.removeValue(forKey: client)
+            skillMismatches.remove(client)
             do { if try ArenaSkill.isInstalled(at: skillDirectory(client)) { installedSkills.insert(client) } }
-            catch { skillErrors[client] = error.localizedDescription }
+            catch { recordSkillError(error, for: client) }
             if !installedSkills.contains(client) { justInstalled.remove(client) }
         }
     }
 
     func installSkill(_ client: Client) {
+        changeSkill(client) { try ArenaSkill.install(at: $0) }
+    }
+
+    func updateSkill(_ client: Client) {
+        changeSkill(client) { try ArenaSkill.update(at: $0) }
+    }
+
+    private func changeSkill(_ client: Client, operation: (URL) throws -> Void) {
         do {
-            try ArenaSkill.install(at: skillDirectory(client))
+            try operation(skillDirectory(client))
             refreshSkills()
             guard installedSkills.contains(client) else { return }
             justInstalled.insert(client)
             Task { try? await Task.sleep(for: .seconds(2.5)); justInstalled.remove(client) }
-        } catch { skillErrors[client] = error.localizedDescription }
+        } catch { recordSkillError(error, for: client) }
+    }
+
+    private func recordSkillError(_ error: Error, for client: Client) {
+        skillErrors[client] = error.localizedDescription
+        if error is ArenaSkill.InstalledFilesDifferError { skillMismatches.insert(client) }
+        else { skillMismatches.remove(client) }
     }
     func setUp(_ client: Client) async { await perform(client, install: true, verify: true) }
     func verify(_ client: Client) async { await perform(client, install: false, verify: true) }

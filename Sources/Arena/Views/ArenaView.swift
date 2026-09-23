@@ -196,15 +196,19 @@ struct ArenaView: View {
             if let error = store.retentionError {
                 Text(error).font(.caption).foregroundStyle(.red).padding(12).textSelection(.enabled)
             }
-            Button { selectFolder(.deleted) } label: {
-                sidebarLabel("Recently Deleted", icon: "trash")
+            let showingDeleted = folder == .deleted
+            Button { selectFolder(showingDeleted ? .sessions : .deleted) } label: {
+                sidebarLabel(showingDeleted ? "Back to Sessions" : "Recently Deleted",
+                             icon: showingDeleted ? "chevron.left" : "trash")
                     .font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary)
-                    .frame(height: 36)
-                    .background(folder == .deleted ? ArenaPalette.navigationSelection : .clear,
-                                in: RoundedRectangle(cornerRadius: 6))
+                    .frame(height: 32)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            .buttonStyle(ArenaKeyboardButtonStyle()).padding(.horizontal, 8)
-            .accessibilityAddTraits(folder == .deleted ? .isSelected : [])
+            .buttonStyle(ArenaKeyboardButtonStyle())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .accessibilityLabel(showingDeleted ? "Back to Sessions" : "Show Recently Deleted")
+            .help(showingDeleted ? "Return to active sessions" : "Show recently deleted sessions")
             VStack(spacing: 0) {
                 ArenaPalette.divider.frame(height: 1)
                 HStack(spacing: 0) {
@@ -372,7 +376,7 @@ struct ArenaView: View {
         if session.isStoredAway {
             Button("Restore Session", systemImage: "arrow.uturn.backward") { restore(session) }
         } else {
-            Button("Edit Session…") { editingSession = session }
+            Button("Edit Session…", systemImage: "square.and.pencil") { editingSession = session }
             lifecycleButton(session)
             Divider()
             Button("Archive Session", systemImage: "archivebox") { perform { try store.archiveSession(session.id) } }
