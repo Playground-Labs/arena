@@ -201,9 +201,12 @@ struct ArenaView: View {
                 sidebarLabel(showingDeleted ? "Back to Sessions" : "Recently Deleted",
                              icon: showingDeleted ? "chevron.left" : "trash")
                     .font(.system(size: 11)).foregroundStyle(ArenaPalette.secondary)
-                    .frame(height: 36)
+                    .frame(height: 32)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            .buttonStyle(ArenaKeyboardButtonStyle()).padding(.horizontal, 8)
+            .buttonStyle(ArenaKeyboardButtonStyle())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
             .accessibilityLabel(showingDeleted ? "Back to Sessions" : "Show Recently Deleted")
             .help(showingDeleted ? "Return to active sessions" : "Show recently deleted sessions")
             VStack(spacing: 0) {
