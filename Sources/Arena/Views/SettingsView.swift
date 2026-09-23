@@ -202,11 +202,17 @@ struct ArenaSettingsView: View {
                 skillStatus(client)
             }
             Spacer(minLength: 4)
-            HStack(spacing: 0) {
+            HStack(spacing: 6) {
                 if mismatch {
-                    Button { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: setup.skillDirectory(client).path) } label: { Text("Show Folder") }
-                        .buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
+                    Button { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: setup.skillDirectory(client).path) } label: {
+                        Image(systemName: "magnifyingglass")
+                    }.buttonStyle(ArenaKeyboardButtonStyle(kind: .icon))
                         .accessibilityLabel("Show Skill Folder for \(client.rawValue)")
+                        .help("Show Arena skill folder in Finder")
+                    Button { setup.updateSkill(client) } label: { Text("Update Skill") }
+                        .buttonStyle(ArenaKeyboardButtonStyle(kind: .primary))
+                        .accessibilityLabel("Update Arena skill for \(client.rawValue)")
+                        .help("Replace Arena’s managed skill files with this version. Open a new chat after updating.")
                 } else if error != nil {
                     Button { setup.installSkill(client) } label: { Text("Try Again") }
                         .buttonStyle(ArenaKeyboardButtonStyle(kind: .secondary))
@@ -222,7 +228,7 @@ struct ArenaSettingsView: View {
                         .background(ArenaPalette.statusConsensusFill, in: RoundedRectangle(cornerRadius: 6))
                         .accessibilityLabel("Arena skill installed for \(client.rawValue)")
                 }
-            }.frame(width: 96, alignment: .trailing)
+            }.frame(width: 136, alignment: .trailing)
         }.padding(.horizontal, 12).padding(.vertical, 14)
     }
 
@@ -260,6 +266,7 @@ struct ArenaSettingsView: View {
         return HStack(spacing: 6) {
             Circle().fill(color).frame(width: 5, height: 5).accessibilityHidden(true)
             Text(text).foregroundStyle(installed || error != nil ? color : ArenaPalette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }.font(.system(size: 12)).help(error ?? text)
     }
 

@@ -72,8 +72,16 @@ final class ClientSetup {
     }
 
     func installSkill(_ client: Client) {
+        changeSkill(client) { try ArenaSkill.install(at: $0) }
+    }
+
+    func updateSkill(_ client: Client) {
+        changeSkill(client) { try ArenaSkill.update(at: $0) }
+    }
+
+    private func changeSkill(_ client: Client, operation: (URL) throws -> Void) {
         do {
-            try ArenaSkill.install(at: skillDirectory(client))
+            try operation(skillDirectory(client))
             refreshSkills()
             guard installedSkills.contains(client) else { return }
             justInstalled.insert(client)

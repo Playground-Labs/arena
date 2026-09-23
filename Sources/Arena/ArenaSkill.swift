@@ -45,4 +45,13 @@ enum ArenaSkill {
         }
         guard try isInstalled(at: directory) else { throw ArenaError.invalid("Skill installation is incomplete. Try installing again.") }
     }
+
+    static func update(at directory: URL) throws {
+        for (path, data) in try files() {
+            let file = directory.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: file, options: .atomic)
+        }
+        guard try isInstalled(at: directory) else { throw ArenaError.invalid("Skill update is incomplete. Try updating again.") }
+    }
 }
